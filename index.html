@@ -2071,6 +2071,16 @@ function renderBoard() {
     // Always show today even if empty
     if (!groups.has(todayStr)) groups.set(todayStr, []);
 
+    // Always show an empty slot for the day after the last task date
+    const taskDates = [...groups.keys()].filter(d => d); // exclude nulls
+    if (taskDates.length > 0) {
+        const lastDate = taskDates.reduce((a, b) => a > b ? a : b);
+        const dayAfter = new Date(lastDate + 'T00:00:00');
+        dayAfter.setDate(dayAfter.getDate() + 1);
+        const dayAfterStr = dayAfter.toISOString().slice(0, 10);
+        if (!groups.has(dayAfterStr)) groups.set(dayAfterStr, []);
+    }
+
     // Sort columns chronologically
     const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
 
