@@ -841,8 +841,8 @@
                 <span class="chart-title">&#x1F4C8; Weekly Hours</span>
                 <div class="chart-header-right" onclick="event.stopPropagation()">
                     <select class="chart-range" id="chart-range" onchange="setChartRange(this.value)">
-                        <option value="2">Past week</option>
-                        <option value="4">Past 4 weeks</option>
+                        <option value="d7">Past week</option>
+                        <option value="d28">Past 4 weeks</option>
                         <option value="5">Past month</option>
                         <option value="12" selected>Last 12 weeks</option>
                         <option value="26">Last 6 months</option>
@@ -1557,7 +1557,8 @@ function deleteSubtask(taskId, subtaskId) {
 
 // ── Chart ─────────────────────────────────────
 let hoursChart    = null;
-let chartWeeks    = 12;
+let chartWeeks    = 12;   // used in weekly mode
+let chartDays     = null; // non-null = daily mode (value is number of days)
 let chartExpanded = true;
 
 function getWeekStart(ts) {
@@ -1601,11 +1602,63 @@ function buildChartData(numWeeks) {
     return { labels, hours: hours.map(h => Math.round(h * 10) / 10) };
 }
 
+function buildChartDataDaily(numDays) {
+    // Build array of day-start timestamps, oldest → newest
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const dayStarts = [];
+    const dayMap    = new Map(); // timestamp → array index
+
+    for (let i = numDays - 1; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const ts = d.getTime();
+        dayMap.set(ts, numDays - 1 - i);
+        dayStarts.push(ts);
+    }
+
+    const hours = new Array(numDays).fill(0);
+
+    state.tasks.forEach(task => {
+        (task.timeEntries || []).forEach(entry => {
+            if (!entry.endTime || !entry.duration) return;
+            const d = new Date(entry.startTime);
+            d.setHours(0, 0, 0, 0);
+            const idx = dayMap.get(d.getTime());
+            if (idx !== undefined) hours[idx] += entry.duration / 3600;
+        });
+    });
+
+    // Shorter format for 28-day view so labels don't crowd
+    const fmt = numDays <= 7
+        ? { weekday: 'short', month: 'short', day: 'numeric' }
+        : { weekday: 'short', day: 'numeric' };
+    const labels = dayStarts.map(ts => new Date(ts).toLocaleDateString(undefined, fmt));
+    return { labels, hours: hours.map(h => Math.round(h * 10) / 10) };
+}
+
+// Returns chart data for whichever mode is active
+function getChartData() {
+    return chartDays !== null ? buildChartDataDaily(chartDays) : buildChartData(chartWeeks);
+}
+
+// Max x-axis ticks for the active range
+function tickLimit() {
+    if (chartDays !== null) return chartDays; // show every day
+    return chartWeeks <= 12 ? chartWeeks : 13;
+}
+
+// Tooltip title wording
+function chartTooltipTitle(items) {
+    return chartDays !== null ? items[0].label : `Week of ${items[0].label}`;
+}
+
 function initChart() {
     const canvas = document.getElementById('hours-chart');
     if (!canvas || hoursChart) return;
 
-    const { labels, hours } = buildChartData(chartWeeks);
+    const { labels, hours } = getChartData();
 
     hoursChart = new Chart(canvas.getContext('2d'), {
         type: 'line',
@@ -1634,7 +1687,7 @@ function initChart() {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        title: items => `Week of ${items[0].label}`,
+                        title: items => chartTooltipTitle(items),
                         label: item  => ` ${item.parsed.y}h tracked`,
                     },
                     backgroundColor: '#1f2937',
@@ -1650,8 +1703,8 @@ function initChart() {
                     ticks: {
                         font: { size: 11 },
                         color: '#9ca3af',
-                        maxTicksLimit: chartWeeks <= 12 ? chartWeeks : 13,
-                        maxRotation: 30,
+                        maxTicksLimit: tickLimit(),
+                        maxRotation: 45,
                     }
                 },
                 y: {
@@ -1670,10 +1723,19 @@ function initChart() {
 
 function updateChart() {
     if (!hoursChart) return;
-    const { labels, hours } = buildChartData(chartWeeks);
-    hoursChart.data.labels              = labels;
-    hoursChart.data.datasets[0].data    = hours;
+    const { labels, hours } = getChartData();
+    hoursChart.data.labels                              = labels;
+    hoursChart.data.datasets[0].data                    = hours;
+    hoursChart.options.scales.x.ticks.maxTicksLimit     = tickLimit();
     hoursChart.update('none');
+
+    // Update heading text
+    const titleEl = document.querySelector('.chart-title');
+    if (titleEl) {
+        titleEl.innerHTML = chartDays !== null
+            ? '&#x1F4C8; Daily Hours'
+            : '&#x1F4C8; Weekly Hours';
+    }
 }
 
 function toggleChart() {
@@ -1683,7 +1745,12 @@ function toggleChart() {
 }
 
 function setChartRange(val) {
-    chartWeeks = parseInt(val);
+    if (val.startsWith('d')) {
+        chartDays  = parseInt(val.slice(1));
+    } else {
+        chartWeeks = parseInt(val);
+        chartDays  = null;
+    }
     updateChart();
 }
 
