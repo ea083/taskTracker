@@ -2013,12 +2013,14 @@ function kanbanCardHtml(task) {
             ${total > 0 ? `<span class="kanban-card-time">${fmtSecs(total)}</span>` : ''}
         </div>
         <div class="kanban-card-actions">
+            <button class="icon-btn" onclick="shiftTaskDate('${task.id}',-1)" title="Move to previous day">&#x2190;</button>
             <button class="icon-btn" onclick="openEditTask('${task.id}')" title="Edit">&#x270E;</button>
             <button class="icon-btn success" onclick="toggleComplete('${task.id}')" title="${isDone ? 'Reopen' : 'Complete'}">
                 ${isDone ? '&#x21A9;' : '&#x2713;'}
             </button>
             ${!isDone && !isRunning ? `<button class="icon-btn" onclick="startTimer('${task.id}')" title="Start timer">&#x25B6;</button>` : ''}
             ${isRunning             ? `<button class="icon-btn danger" onclick="stopTimer(true)" title="Stop timer">&#x23F9;</button>` : ''}
+            <button class="icon-btn" onclick="shiftTaskDate('${task.id}',1)" title="Move to next day">&#x2192;</button>
         </div>
     </div>`;
 }
@@ -2124,6 +2126,17 @@ function kDrop(e) {
     const task = state.tasks.find(t => t.id === dragTaskId);
     if (task) { task.doDate = newDate; save(); renderBoard(); }
     dragTaskId = null;
+}
+
+function shiftTaskDate(taskId, days) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    // If unscheduled, base off today before shifting
+    const base = task.doDate ? new Date(task.doDate + 'T00:00:00') : (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
+    base.setDate(base.getDate() + days);
+    task.doDate = base.toISOString().slice(0, 10);
+    save();
+    renderBoard();
 }
 
 // ── Event Handlers ────────────────────────────
