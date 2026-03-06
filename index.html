@@ -619,6 +619,152 @@
             font-size: 13px;
         }
 
+        /* ── Tabs ── */
+        .tab-bar {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 18px;
+        }
+        .tab-btn {
+            padding: 8px 18px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.15s;
+        }
+        .tab-btn:hover { background: var(--bg); color: var(--text); }
+        .tab-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+        /* ── Kanban Board ── */
+        .board-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .kanban-scroll {
+            display: flex;
+            gap: 14px;
+            overflow-x: auto;
+            padding-bottom: 20px;
+            align-items: flex-start;
+        }
+        .kanban-col {
+            background: var(--bg);
+            border-radius: var(--radius-lg);
+            border: 2px solid transparent;
+            min-width: 258px;
+            max-width: 258px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 240px);
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .kanban-col.drag-over {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+        .kanban-col-header {
+            padding: 10px 13px 9px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+            gap: 8px;
+        }
+        .kanban-col-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text);
+            white-space: nowrap;
+        }
+        .kanban-col-title.is-today  { color: var(--primary); }
+        .kanban-col-title.is-past   { color: var(--text-muted); }
+        .kanban-col-count {
+            font-size: 11px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            border-radius: 999px;
+            padding: 1px 7px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .kanban-col-body {
+            padding: 8px;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            min-height: 72px;
+        }
+        .kanban-drop-hint {
+            color: var(--text-muted);
+            font-size: 12px;
+            text-align: center;
+            padding: 14px 8px;
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            pointer-events: none;
+        }
+        .kanban-card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--border);
+            padding: 10px 11px;
+            box-shadow: var(--shadow);
+            cursor: grab;
+            transition: box-shadow 0.15s, opacity 0.15s;
+            user-select: none;
+        }
+        .kanban-card:active { cursor: grabbing; }
+        .kanban-card:hover  { box-shadow: var(--shadow-md); }
+        .kanban-card.dragging { opacity: 0.35; cursor: grabbing; }
+        .kanban-card.priority-high   { border-left-color: #ef4444; }
+        .kanban-card.priority-medium { border-left-color: #f59e0b; }
+        .kanban-card.priority-low    { border-left-color: #10b981; }
+        .kanban-card.status-completed { opacity: 0.55; }
+        .kanban-card.running          { border-left-color: var(--primary) !important; }
+        .kanban-card-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 6px;
+            line-height: 1.35;
+        }
+        .kanban-card-meta {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .kanban-card-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 600;
+            margin-left: auto;
+        }
+        .kanban-card-actions {
+            display: flex;
+            gap: 5px;
+        }
+        .kanban-card-actions .icon-btn {
+            flex: 1;
+            justify-content: center;
+            font-size: 11px;
+            height: 24px;
+        }
+
         /* ── Dark Mode ── */
         body.dark {
             --bg:          #111827;
@@ -819,44 +965,60 @@
     </header>
 
     <main>
-        <div class="toolbar">
-            <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
-            <input type="text" class="search-box" id="search-input" placeholder="Search tasks..." oninput="handleSearch(this.value)">
-            <div class="filter-group">
-                <button class="btn btn-ghost active" onclick="setFilter('all', this)">All</button>
-                <button class="btn btn-ghost" onclick="setFilter('todo', this)">To Do</button>
-                <button class="btn btn-ghost" onclick="setFilter('in-progress', this)">In Progress</button>
-                <button class="btn btn-ghost" onclick="setFilter('completed', this)">Completed</button>
-            </div>
-            <select class="sort-select" onchange="setSort(this.value)">
-                <option value="created">Sort: Newest</option>
-                <option value="priority">Sort: Priority</option>
-                <option value="name">Sort: Name</option>
-                <option value="time">Sort: Time</option>
-            </select>
-        </div>
-        <!-- Weekly Hours Chart -->
-        <div class="chart-panel" id="chart-panel">
-            <div class="chart-header" onclick="toggleChart()">
-                <span class="chart-title">&#x1F4C8; Weekly Hours</span>
-                <div class="chart-header-right" onclick="event.stopPropagation()">
-                    <select class="chart-range" id="chart-range" onchange="setChartRange(this.value)">
-                        <option value="d7">Past week</option>
-                        <option value="d28">Past 4 weeks</option>
-                        <option value="5">Past month</option>
-                        <option value="12" selected>Last 12 weeks</option>
-                        <option value="26">Last 6 months</option>
-                        <option value="52">Last year</option>
-                    </select>
-                    <span class="chart-chevron up" id="chart-chevron">&#9650;</span>
-                </div>
-            </div>
-            <div class="chart-body" id="chart-body">
-                <canvas id="hours-chart"></canvas>
-            </div>
+        <!-- View Tabs -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-view="list" onclick="setView('list')">&#x1F4CB; List</button>
+            <button class="tab-btn" data-view="board" onclick="setView('board')">&#x1F4CC; Board</button>
         </div>
 
-        <div class="task-list" id="task-list"></div>
+        <!-- List View -->
+        <div id="list-view">
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
+                <input type="text" class="search-box" id="search-input" placeholder="Search tasks..." oninput="handleSearch(this.value)">
+                <div class="filter-group">
+                    <button class="btn btn-ghost active" onclick="setFilter('all', this)">All</button>
+                    <button class="btn btn-ghost" onclick="setFilter('todo', this)">To Do</button>
+                    <button class="btn btn-ghost" onclick="setFilter('in-progress', this)">In Progress</button>
+                    <button class="btn btn-ghost" onclick="setFilter('completed', this)">Completed</button>
+                </div>
+                <select class="sort-select" onchange="setSort(this.value)">
+                    <option value="created">Sort: Newest</option>
+                    <option value="priority">Sort: Priority</option>
+                    <option value="name">Sort: Name</option>
+                    <option value="time">Sort: Time</option>
+                </select>
+            </div>
+            <!-- Weekly Hours Chart -->
+            <div class="chart-panel" id="chart-panel">
+                <div class="chart-header" onclick="toggleChart()">
+                    <span class="chart-title">&#x1F4C8; Weekly Hours</span>
+                    <div class="chart-header-right" onclick="event.stopPropagation()">
+                        <select class="chart-range" id="chart-range" onchange="setChartRange(this.value)">
+                            <option value="d7">Past week</option>
+                            <option value="d28">Past 4 weeks</option>
+                            <option value="5">Past month</option>
+                            <option value="12" selected>Last 12 weeks</option>
+                            <option value="26">Last 6 months</option>
+                            <option value="52">Last year</option>
+                        </select>
+                        <span class="chart-chevron up" id="chart-chevron">&#9650;</span>
+                    </div>
+                </div>
+                <div class="chart-body" id="chart-body">
+                    <canvas id="hours-chart"></canvas>
+                </div>
+            </div>
+            <div class="task-list" id="task-list"></div>
+        </div>
+
+        <!-- Board View -->
+        <div id="board-view" style="display:none">
+            <div class="board-toolbar">
+                <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
+            </div>
+            <div class="kanban-scroll" id="kanban-scroll"></div>
+        </div>
     </main>
 </div>
 
@@ -893,6 +1055,10 @@
                         <option value="completed">Completed</option>
                     </select>
                 </div>
+            </div>
+            <div class="form-group">
+                <label for="task-do-date">Do Date <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(optional — for board view)</span></label>
+                <input type="date" id="task-do-date">
             </div>
         </div>
         <div class="modal-footer">
@@ -942,6 +1108,7 @@ const state = {
     search:        '',
     sort:          'created',
     editingTaskId: null,
+    view:          'list', // 'list' | 'board'
 };
 
 const expandedTasks = new Set(); // tracks which task cards have subtasks expanded
@@ -1174,6 +1341,7 @@ function createTask(data) {
         description:  (data.description || '').trim(),
         priority:     data.priority || 'medium',
         status:       data.status   || 'todo',
+        doDate:       data.doDate   || null,
         createdAt:    Date.now(),
         totalSeconds: 0,
         timeEntries:  [],
@@ -1299,7 +1467,7 @@ function filtered() {
 }
 
 // ── Rendering ─────────────────────────────────
-function render() { renderTasks(); updateStats(); updateChart(); }
+function render() { renderTasks(); updateStats(); updateChart(); if (state.view === 'board') renderBoard(); }
 
 function renderTasks() {
     const list  = document.getElementById('task-list');
@@ -1409,6 +1577,7 @@ function openAddTask() {
     document.getElementById('task-desc').value     = '';
     document.getElementById('task-priority').value = 'medium';
     document.getElementById('task-status').value   = 'todo';
+    document.getElementById('task-do-date').value  = '';
     document.getElementById('task-name').classList.remove('error');
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
@@ -1423,6 +1592,7 @@ function openEditTask(id) {
     document.getElementById('task-desc').value     = t.description || '';
     document.getElementById('task-priority').value = t.priority;
     document.getElementById('task-status').value   = t.status;
+    document.getElementById('task-do-date').value  = t.doDate || '';
     document.getElementById('task-name').classList.remove('error');
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
@@ -1438,6 +1608,7 @@ function saveTask() {
         description: document.getElementById('task-desc').value,
         priority:    document.getElementById('task-priority').value,
         status:      document.getElementById('task-status').value,
+        doDate:      document.getElementById('task-do-date').value || null,
     };
     state.editingTaskId ? updateTask(state.editingTaskId, data) : createTask(data);
     closeModal('task-modal');
@@ -1788,6 +1959,151 @@ function toggleDarkMode() {
     const btn  = document.getElementById('dark-toggle');
     if (btn) btn.textContent = dark ? '☀️' : '🌙';
 })();
+
+// ── View / Tab switching ───────────────────────
+function setView(v) {
+    state.view = v;
+    document.querySelectorAll('.tab-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.view === v)
+    );
+    document.getElementById('list-view').style.display  = v === 'list'  ? '' : 'none';
+    document.getElementById('board-view').style.display = v === 'board' ? '' : 'none';
+    if (v === 'board') renderBoard();
+}
+
+// ── Kanban Board ───────────────────────────────
+let dragTaskId = null;
+
+function formatDoDateLabel(doDate, todayStr) {
+    if (!doDate) return 'Unscheduled';
+    const diffDays = Math.round(
+        (new Date(doDate + 'T00:00:00') - new Date(todayStr + 'T00:00:00')) / 86400000
+    );
+    if (diffDays === 0)  return 'Today';
+    if (diffDays === -1) return 'Yesterday';
+    if (diffDays === 1)  return 'Tomorrow';
+    if (diffDays > 1 && diffDays <= 6)
+        return new Date(doDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    return new Date(doDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function kanbanCardHtml(task) {
+    const isRunning = state.activeTimer?.taskId === task.id;
+    const total     = taskTotal(task);
+    const isDone    = task.status === 'completed';
+    return `
+    <div class="kanban-card priority-${task.priority} status-${task.status}${isRunning ? ' running' : ''}"
+         draggable="true" data-task-id="${task.id}"
+         ondragstart="kDragStart(event)" ondragend="kDragEnd(event)">
+        <div class="kanban-card-name">
+            ${isRunning ? '<span class="dot" style="margin-right:5px;vertical-align:middle"></span>' : ''}${esc(task.name)}
+        </div>
+        <div class="kanban-card-meta">
+            <span class="badge badge-${task.priority}">${task.priority}</span>
+            <span class="badge badge-${task.status}">${task.status.replace('-',' ')}</span>
+            ${total > 0 ? `<span class="kanban-card-time">${fmtSecs(total)}</span>` : ''}
+        </div>
+        <div class="kanban-card-actions">
+            <button class="icon-btn" onclick="openEditTask('${task.id}')" title="Edit">&#x270E;</button>
+            <button class="icon-btn success" onclick="toggleComplete('${task.id}')" title="${isDone ? 'Reopen' : 'Complete'}">
+                ${isDone ? '&#x21A9;' : '&#x2713;'}
+            </button>
+            ${!isDone && !isRunning ? `<button class="icon-btn" onclick="startTimer('${task.id}')" title="Start timer">&#x25B6;</button>` : ''}
+            ${isRunning             ? `<button class="icon-btn danger" onclick="stopTimer(true)" title="Stop timer">&#x23F9;</button>` : ''}
+        </div>
+    </div>`;
+}
+
+function kanbanColHtml(doDate, tasks, todayStr) {
+    const label   = formatDoDateLabel(doDate, todayStr);
+    const isToday = doDate === todayStr;
+    const isPast  = doDate && doDate < todayStr;
+    const titleCls = isToday ? 'is-today' : (isPast ? 'is-past' : '');
+    const safeDate = doDate || '';
+    return `
+    <div class="kanban-col"
+         ondragover="kDragOver(event)" ondrop="kDrop(event)" ondragleave="kDragLeave(event)"
+         data-do-date="${safeDate}">
+        <div class="kanban-col-header">
+            <span class="kanban-col-title ${titleCls}">${isToday ? '&#11088; ' : ''}${label}</span>
+            <span class="kanban-col-count">${tasks.length}</span>
+        </div>
+        <div class="kanban-col-body">
+            ${tasks.length === 0
+                ? '<div class="kanban-drop-hint">Drop tasks here</div>'
+                : tasks.map(t => kanbanCardHtml(t)).join('')}
+        </div>
+    </div>`;
+}
+
+function renderBoard() {
+    const scroll = document.getElementById('kanban-scroll');
+    if (!scroll) return;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().slice(0, 10);
+
+    // Group tasks by doDate
+    const groups = new Map();  // doDate string → task[]
+    const unscheduled = [];
+
+    state.tasks.forEach(task => {
+        if (!task.doDate) {
+            unscheduled.push(task);
+        } else {
+            if (!groups.has(task.doDate)) groups.set(task.doDate, []);
+            groups.get(task.doDate).push(task);
+        }
+    });
+
+    // Always show today even if empty
+    if (!groups.has(todayStr)) groups.set(todayStr, []);
+
+    // Sort columns chronologically
+    const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+
+    // Build HTML: dated columns then unscheduled
+    scroll.innerHTML =
+        sorted.map(([date, tasks]) => kanbanColHtml(date, tasks, todayStr)).join('') +
+        kanbanColHtml(null, unscheduled, todayStr);
+}
+
+// ── Kanban Drag & Drop ─────────────────────────
+function kDragStart(e) {
+    dragTaskId = e.currentTarget.dataset.taskId;
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function kDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    document.querySelectorAll('.kanban-col.drag-over')
+        .forEach(c => c.classList.remove('drag-over'));
+}
+
+function kDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+}
+
+function kDragLeave(e) {
+    // Only clear highlight when leaving the column entirely (not just a child)
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+        e.currentTarget.classList.remove('drag-over');
+    }
+}
+
+function kDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    if (!dragTaskId) return;
+    const newDate = e.currentTarget.dataset.doDate || null;
+    const task = state.tasks.find(t => t.id === dragTaskId);
+    if (task) { task.doDate = newDate; save(); renderBoard(); }
+    dragTaskId = null;
+}
 
 // ── Event Handlers ────────────────────────────
 function setFilter(f, btn) {
