@@ -209,9 +209,6 @@
             margin: 24px auto;
             padding: 0 20px;
         }
-        main.board-active {
-            max-width: none;
-        }
 
         /* ── Toolbar ── */
         .toolbar {
@@ -1014,15 +1011,15 @@
             </div>
             <div class="task-list" id="task-list"></div>
         </div>
-
-        <!-- Board View -->
-        <div id="board-view" style="display:none">
-            <div class="board-toolbar">
-                <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
-            </div>
-            <div class="kanban-scroll" id="kanban-scroll"></div>
-        </div>
     </main>
+
+    <!-- Board View — lives outside <main> so it is not width-constrained -->
+    <div id="board-view" style="display:none; padding:0 20px 28px;">
+        <div class="board-toolbar">
+            <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
+        </div>
+        <div class="kanban-scroll" id="kanban-scroll"></div>
+    </div>
 </div>
 
 <!-- Add / Edit Task Modal -->
@@ -1971,7 +1968,6 @@ function setView(v) {
     );
     document.getElementById('list-view').style.display  = v === 'list'  ? '' : 'none';
     document.getElementById('board-view').style.display = v === 'board' ? '' : 'none';
-    document.querySelector('main').classList.toggle('board-active', v === 'board');
     if (v === 'board') renderBoard();
 }
 
