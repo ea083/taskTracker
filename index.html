@@ -1740,8 +1740,14 @@ function updateChart() {
 
 function toggleChart() {
     chartExpanded = !chartExpanded;
-    document.getElementById('chart-body').classList.toggle('collapsed', !chartExpanded);
+    const body = document.getElementById('chart-body');
+    body.classList.toggle('collapsed', !chartExpanded);
     document.getElementById('chart-chevron').classList.toggle('up', chartExpanded);
+    // After the CSS transition ends, tell Chart.js to remeasure the container.
+    // Without this it caches the 0px collapsed size and stays tiny on re-expand.
+    if (chartExpanded && hoursChart) {
+        body.addEventListener('transitionend', () => hoursChart.resize(), { once: true });
+    }
 }
 
 function setChartRange(val) {
