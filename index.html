@@ -1229,6 +1229,8 @@ function showApp(user) {
     document.getElementById('user-name').textContent = user.displayName || user.email;
     const av = document.getElementById('user-avatar');
     if (user.photoURL) { av.src = user.photoURL; av.style.display = 'block'; }
+    // Restore the last active view (board renders again with real data once Firebase loads)
+    setView(localStorage.getItem('tt_view') || 'list');
 }
 
 function showLogin() {
@@ -1969,6 +1971,7 @@ function toggleDarkMode() {
 // ── View / Tab switching ───────────────────────
 function setView(v) {
     state.view = v;
+    localStorage.setItem('tt_view', v);
     document.querySelectorAll('.tab-btn').forEach(b =>
         b.classList.toggle('active', b.dataset.view === v)
     );
