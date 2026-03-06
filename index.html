@@ -2516,7 +2516,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Enter' && document.getElementById('task-modal').classList.contains('visible')) {
         if (document.activeElement.tagName !== 'TEXTAREA') saveTask();
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openAddTask(); }
+    if (e.altKey && e.key === 'n') { e.preventDefault(); openAddTask(); }
 });
 
 // ── Init ──────────────────────────────────────
