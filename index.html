@@ -1784,12 +1784,14 @@ function taskCardHtml(t) {
                            onchange="toggleSubtask('${t.id}','${s.id}')">
                     <span class="subtask-name${s.done ? ' done' : ''}" id="sname-${t.id}-${s.id}">${esc(s.name)}</span>
                     ${subSubs.length > 0 ? `<span style="font-size:10px;color:var(--text-muted)">(${ssDone}/${subSubs.length})</span>` : ''}
-                    <button class="icon-btn" style="width:22px;height:22px;font-size:11px;margin-left:auto"
+                    <button class="icon-btn" style="width:22px;height:22px;font-size:15px;margin-left:auto"
+                            onclick="showAddSubSubtask('${t.id}','${s.id}')" title="Add sub-task">&#x2B;</button>
+                    <button class="icon-btn" style="width:22px;height:22px;font-size:11px"
                             onclick="startEditSubtask('${t.id}','${s.id}')" title="Edit">&#x270E;</button>
                     <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px"
                             onclick="deleteSubtask('${t.id}','${s.id}')">&#x2715;</button>
                 </div>
-                <div class="subtask-children">
+                <div class="subtask-children" id="schildren-${t.id}-${s.id}">
                     ${subSubs.map(ss => `
                     <div class="subtask-item">
                         <input type="checkbox" class="subtask-checkbox" ${ss.done ? 'checked' : ''}
@@ -1800,12 +1802,6 @@ function taskCardHtml(t) {
                         <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px"
                                 onclick="deleteSubSubtask('${t.id}','${s.id}','${ss.id}')">&#x2715;</button>
                     </div>`).join('')}
-                    <div class="subtask-add">
-                        <input type="text" class="subtask-input" id="ssi-${t.id}-${s.id}"
-                               placeholder="Add a sub-task…" maxlength="120"
-                               onkeydown="if(event.key==='Enter')addSubSubtask('${t.id}','${s.id}')">
-                        <button class="subtask-add-btn" onclick="addSubSubtask('${t.id}','${s.id}')">Add</button>
-                    </div>
                 </div>`;
                 }).join('')}
                 <div class="subtask-add">
@@ -2091,21 +2087,44 @@ function deleteSubtask(taskId, subtaskId) {
 }
 
 // ── Sub-subtask CRUD ───────────────────────────
-function addSubSubtask(taskId, subtaskId) {
-    const input = document.getElementById(`ssi-${taskId}-${subtaskId}`);
-    if (!input) return;
-    const name = input.value.trim();
-    if (!name) { input.focus(); return; }
-    const task    = state.tasks.find(t => t.id === taskId);
-    const subtask = task?.subtasks?.find(s => s.id === subtaskId);
-    if (!subtask) return;
-    if (!subtask.subtasks) subtask.subtasks = [];
-    subtask.subtasks.push({ id: uid(), name, done: false, createdAt: Date.now() });
-    expandedTasks.add(taskId);
-    save();
-    render();
-    const newInput = document.getElementById(`ssi-${taskId}-${subtaskId}`);
-    if (newInput) newInput.focus();
+function showAddSubSubtask(taskId, subtaskId) {
+    const container = document.getElementById(`schildren-${taskId}-${subtaskId}`);
+    if (!container) return;
+    // If input already showing, just focus it
+    const existing = container.querySelector('.ssa-input');
+    if (existing) { existing.focus(); return; }
+    // Build inline add row
+    const addDiv = document.createElement('div');
+    addDiv.className = 'subtask-add';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'subtask-input ssa-input';
+    input.placeholder = 'Add a sub-task…';
+    input.maxLength = 120;
+    const btn = document.createElement('button');
+    btn.className = 'subtask-add-btn';
+    btn.textContent = 'Add';
+    const doAdd = () => {
+        const name = input.value.trim();
+        if (!name) { input.focus(); return; }
+        const task    = state.tasks.find(t => t.id === taskId);
+        const subtask = task?.subtasks?.find(s => s.id === subtaskId);
+        if (!subtask) return;
+        if (!subtask.subtasks) subtask.subtasks = [];
+        subtask.subtasks.push({ id: uid(), name, done: false, createdAt: Date.now() });
+        expandedTasks.add(taskId);
+        save();
+        render();
+    };
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); doAdd(); }
+        if (e.key === 'Escape') { addDiv.remove(); }
+    });
+    btn.addEventListener('click', doAdd);
+    addDiv.appendChild(input);
+    addDiv.appendChild(btn);
+    container.appendChild(addDiv);
+    input.focus();
 }
 
 function toggleSubSubtask(taskId, subtaskId, subSubId) {
