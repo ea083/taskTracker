@@ -1949,6 +1949,9 @@ function addSubtask(taskId) {
     expandedTasks.add(taskId); // keep panel open after adding
     save();
     render();
+    // Re-focus the input after render so the user can type the next subtask immediately
+    const newInput = document.getElementById(`si-${taskId}`);
+    if (newInput) newInput.focus();
 }
 
 function toggleSubtask(taskId, subtaskId) {
