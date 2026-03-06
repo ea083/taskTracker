@@ -209,6 +209,9 @@
             margin: 24px auto;
             padding: 0 20px;
         }
+        main.board-active {
+            max-width: none;
+        }
 
         /* ── Toolbar ── */
         .toolbar {
@@ -1968,6 +1971,7 @@ function setView(v) {
     );
     document.getElementById('list-view').style.display  = v === 'list'  ? '' : 'none';
     document.getElementById('board-view').style.display = v === 'board' ? '' : 'none';
+    document.querySelector('main').classList.toggle('board-active', v === 'board');
     if (v === 'board') renderBoard();
 }
 
