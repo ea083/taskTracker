@@ -1816,7 +1816,7 @@ function openAddTask() {
     document.getElementById('task-desc').value     = '';
     document.getElementById('task-priority').value = 'medium';
     document.getElementById('task-status').value   = 'todo';
-    document.getElementById('task-do-date').value  = '';
+    document.getElementById('task-do-date').value  = new Date().toISOString().slice(0, 10);
     document.getElementById('task-category').value = '';
     document.getElementById('task-name').classList.remove('error');
     openModal('task-modal');
