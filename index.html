@@ -1213,12 +1213,15 @@ const CAT_COLORS = ['#4f46e5','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6',
 
 const expandedTasks = new Set(); // tracks which task cards have subtasks expanded
 
-let currentUser    = null;
-let tasksRef       = null;
-let categoriesRef  = null;
-let offListener    = null;
-let offCatListener = null;
-let dbInitialized  = false;
+let currentUser          = null;
+let tasksRef             = null;
+let categoriesRef        = null;
+let activeTimerRef       = null; // shared across devices via Firebase
+let offListener          = null;
+let offCatListener       = null;
+let offTimerListener     = null;
+let dbInitialized        = false;
+let _pendingTimerSync    = undefined; // caches Firebase timer value if it arrives before tasks load
 let auth, db;
 
 // ── Error display ──────────────────────────────
@@ -1342,11 +1345,14 @@ function showLogin() {
 
 // ── Firebase Database ──────────────────────────
 function initDatabase() {
-    if (offListener)    offListener();
-    if (offCatListener) offCatListener();
-    tasksRef      = db.ref('users/' + currentUser.uid + '/tasks');
-    categoriesRef = db.ref('users/' + currentUser.uid + '/categories');
-    dbInitialized = false;
+    if (offListener)      offListener();
+    if (offCatListener)   offCatListener();
+    if (offTimerListener) offTimerListener();
+    tasksRef       = db.ref('users/' + currentUser.uid + '/tasks');
+    categoriesRef  = db.ref('users/' + currentUser.uid + '/categories');
+    activeTimerRef = db.ref('users/' + currentUser.uid + '/activeTimer');
+    dbInitialized     = false;
+    _pendingTimerSync = undefined;
 
     offListener = tasksRef.on('value', snapshot => {
         const raw      = snapshot.val() || {};
@@ -1359,7 +1365,12 @@ function initDatabase() {
 
         if (!dbInitialized) {
             dbInitialized = true;
-            restoreTimer();
+            restoreTimer(); // restore from localStorage (page-refresh fallback)
+            // Apply any Firebase timer value that arrived before tasks were loaded
+            if (_pendingTimerSync !== undefined) {
+                syncActiveTimer(_pendingTimerSync);
+                _pendingTimerSync = undefined;
+            }
             try { initChart(); } catch(e) { console.error('Chart init error:', e); }
         }
         render();
@@ -1371,14 +1382,28 @@ function initDatabase() {
         updateCategorySelects();
         if (dbInitialized) render();
     }, err => { console.error('Category listener error:', err.message); });
+
+    // ── Shared active-timer listener ──────────────────────────────────────
+    // This is what prevents double-counting across devices.
+    // When any device starts/stops a timer it writes here; all other devices sync.
+    offTimerListener = activeTimerRef.on('value', snapshot => {
+        const val = snapshot.val(); // { taskId, startTime, entryId } | null
+        if (!dbInitialized) {
+            _pendingTimerSync = val; // tasks not ready yet — apply after they load
+        } else {
+            syncActiveTimer(val);
+        }
+    }, err => { console.error('Active-timer listener error:', err.message); });
 }
 
 function teardownDatabase() {
-    if (offListener)    { offListener();    offListener    = null; }
-    if (offCatListener) { offCatListener(); offCatListener = null; }
-    tasksRef      = null;
-    categoriesRef = null;
-    dbInitialized = false;
+    if (offListener)      { offListener();      offListener      = null; }
+    if (offCatListener)   { offCatListener();   offCatListener   = null; }
+    if (offTimerListener) { offTimerListener(); offTimerListener = null; }
+    tasksRef       = null;
+    categoriesRef  = null;
+    activeTimerRef = null;
+    dbInitialized  = false;
     if (hoursChart) { hoursChart.destroy(); hoursChart = null; }
 }
 
@@ -1416,6 +1441,12 @@ function restoreTimer() {
         const task = state.tasks.find(t => t.id === taskId);
         if (task && task.status !== 'completed') {
             beginTimer(taskId, startTime, entryId);
+            // Re-publish to Firebase so other devices know this timer is still running
+            // (covers the case where the browser was closed mid-session)
+            if (activeTimerRef) {
+                activeTimerRef.set({ taskId, startTime, entryId })
+                    .catch(err => console.error('Timer restore sync error:', err.message));
+            }
             render();
         } else {
             localStorage.removeItem('tt_timer');
@@ -1493,6 +1524,38 @@ function toggleComplete(id) {
     render();
 }
 
+// ── Cross-device timer sync ────────────────────
+// Called whenever the shared Firebase activeTimer value changes.
+// Ensures all devices show the same running timer and never double-count.
+function syncActiveTimer(remoteTimer) {
+    if (remoteTimer) {
+        const { taskId, startTime, entryId } = remoteTimer;
+
+        // Already tracking this exact timer locally — nothing to do
+        if (state.activeTimer?.entryId === entryId) return;
+
+        // A different (or new) timer is active — sync to it.
+        // Stop any current local ticker without committing (the initiating device handles commit).
+        if (state.activeTimer) clearInterval(state.activeTimer.intervalId);
+        state.activeTimer = null;
+
+        const task = state.tasks.find(t => t.id === taskId);
+        if (task && task.status !== 'completed') {
+            beginTimer(taskId, startTime, entryId);
+            localStorage.setItem('tt_timer', JSON.stringify({ taskId, startTime, entryId }));
+            render();
+        }
+    } else {
+        // Firebase says no timer is running — another device stopped it.
+        // Kill our local ticker WITHOUT committing (the stopping device already committed).
+        if (!state.activeTimer) return;
+        clearInterval(state.activeTimer.intervalId);
+        state.activeTimer = null;
+        localStorage.removeItem('tt_timer');
+        render();
+    }
+}
+
 // ── Timer ─────────────────────────────────────
 function beginTimer(taskId, startTime, entryId) {
     const iid = setInterval(() => tickTimer(taskId), 1000);
@@ -1507,6 +1570,12 @@ function startTimer(taskId) {
     const startTime = Date.now();
     const entryId   = uid();
     beginTimer(taskId, startTime, entryId);
+    // Publish to Firebase — all other devices will see this and sync their ticker,
+    // preventing them from starting an independent second timer for the same task.
+    if (activeTimerRef) {
+        activeTimerRef.set({ taskId, startTime, entryId })
+            .catch(err => console.error('Timer sync error:', err.message));
+    }
     save();
     render();
 }
@@ -1516,7 +1585,11 @@ function stopTimer(commit) {
     clearInterval(state.activeTimer.intervalId);
     const { taskId, startTime, entryId } = state.activeTimer;
     state.activeTimer = null;
-
+    // Clear the shared Firebase entry — other devices will see this and stop their
+    // local tickers without committing, so only one time entry is ever written.
+    if (activeTimerRef) {
+        activeTimerRef.remove().catch(err => console.error('Timer clear error:', err.message));
+    }
     if (commit) {
         const task = state.tasks.find(t => t.id === taskId);
         if (task) {
