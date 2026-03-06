@@ -2359,6 +2359,14 @@ function renderBoard() {
     // Sort columns chronologically
     const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
 
+    // Snapshot scroll positions before rebuilding so they can be restored after
+    const colScrolls = {};
+    scroll.querySelectorAll('.kanban-col').forEach(col => {
+        const body = col.querySelector('.kanban-col-body');
+        if (body && body.scrollTop) colScrolls[col.dataset.doDate ?? '__none__'] = body.scrollTop;
+    });
+    const boardScrollLeft = scroll.scrollLeft;
+
     // Build HTML: dated columns (with gap indicators) then unscheduled
     let boardHtml = '';
     for (let i = 0; i < sorted.length; i++) {
@@ -2376,6 +2384,13 @@ function renderBoard() {
     }
     boardHtml += kanbanColHtml(null, unscheduled, todayStr);
     scroll.innerHTML = boardHtml;
+
+    // Restore scroll positions
+    scroll.querySelectorAll('.kanban-col').forEach(col => {
+        const saved = colScrolls[col.dataset.doDate ?? '__none__'];
+        if (saved) col.querySelector('.kanban-col-body').scrollTop = saved;
+    });
+    scroll.scrollLeft = boardScrollLeft;
 }
 
 function kanbanGapHtml(hiddenDays) {
