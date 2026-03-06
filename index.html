@@ -832,6 +832,32 @@
             height: 24px;
         }
 
+        /* ── Kanban Gap Indicator ── */
+        .kanban-gap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 0 2px;
+            flex-shrink: 0;
+            color: var(--text-muted);
+            opacity: 0.55;
+            user-select: none;
+        }
+        .kanban-gap-dots {
+            font-size: 20px;
+            letter-spacing: 2px;
+            line-height: 1;
+        }
+        .kanban-gap-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
         /* ── Dark Mode ── */
         body.dark {
             --bg:          #111827;
@@ -2333,10 +2359,31 @@ function renderBoard() {
     // Sort columns chronologically
     const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
 
-    // Build HTML: dated columns then unscheduled
-    scroll.innerHTML =
-        sorted.map(([date, tasks]) => kanbanColHtml(date, tasks, todayStr)).join('') +
-        kanbanColHtml(null, unscheduled, todayStr);
+    // Build HTML: dated columns (with gap indicators) then unscheduled
+    let boardHtml = '';
+    for (let i = 0; i < sorted.length; i++) {
+        const [date, tasks] = sorted[i];
+        if (i > 0) {
+            const prevDate = sorted[i - 1][0];
+            if (prevDate && date) {
+                const gap = Math.round(
+                    (new Date(date + 'T00:00:00') - new Date(prevDate + 'T00:00:00')) / 86400000
+                ) - 1; // number of hidden days
+                if (gap > 0) boardHtml += kanbanGapHtml(gap);
+            }
+        }
+        boardHtml += kanbanColHtml(date, tasks, todayStr);
+    }
+    boardHtml += kanbanColHtml(null, unscheduled, todayStr);
+    scroll.innerHTML = boardHtml;
+}
+
+function kanbanGapHtml(hiddenDays) {
+    const label = hiddenDays === 1 ? '1 day' : `${hiddenDays} days`;
+    return `<div class="kanban-gap">
+        <div class="kanban-gap-dots">•••</div>
+        <div class="kanban-gap-label">${label}</div>
+    </div>`;
 }
 
 // ── Kanban Drag & Drop ─────────────────────────
