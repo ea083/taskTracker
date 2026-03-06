@@ -1669,7 +1669,7 @@ function taskCardHtml(t) {
     const isExpanded = expandedTasks.has(t.id);
     const cat        = t.category ? state.categories.find(c => c.id === t.category) : null;
     return `
-    <div class="task-card priority-${t.priority} status-${t.status}${isRunning ? ' running' : ''}" id="card-${t.id}">
+    <div class="task-card priority-${t.priority} status-${t.status}${isRunning ? ' running' : ''}" id="card-${t.id}" onclick="cardClick(event,'${t.id}')" style="cursor:pointer">
         <div class="task-row">
             <div class="task-body">
                 <div class="task-title">
@@ -1924,6 +1924,14 @@ function confirmDelete(id) {
 }
 
 // ── Subtasks ───────────────────────────────────
+// Clicking anywhere on the card background toggles subtasks;
+// clicks on interactive elements are ignored so they still work normally.
+function cardClick(event, taskId) {
+    const tag = event.target.tagName.toLowerCase();
+    if (['button', 'input', 'select', 'textarea', 'a', 'label'].includes(tag)) return;
+    toggleSubtasks(taskId);
+}
+
 function toggleSubtasks(taskId) {
     if (expandedTasks.has(taskId)) {
         expandedTasks.delete(taskId);
