@@ -654,6 +654,12 @@
             padding-bottom: 20px;
             align-items: flex-start;
         }
+        .kanban-col.is-weekend {
+            background: #d8dce3;
+        }
+        body.dark .kanban-col.is-weekend {
+            background: #0a0f1a;
+        }
         .kanban-col {
             background: var(--bg);
             border-radius: var(--radius-lg);
@@ -2015,13 +2021,15 @@ function kanbanCardHtml(task) {
 }
 
 function kanbanColHtml(doDate, tasks, todayStr) {
-    const label   = formatDoDateLabel(doDate, todayStr);
-    const isToday = doDate === todayStr;
-    const isPast  = doDate && doDate < todayStr;
-    const titleCls = isToday ? 'is-today' : (isPast ? 'is-past' : '');
-    const safeDate = doDate || '';
+    const label     = formatDoDateLabel(doDate, todayStr);
+    const isToday   = doDate === todayStr;
+    const isPast    = doDate && doDate < todayStr;
+    const titleCls  = isToday ? 'is-today' : (isPast ? 'is-past' : '');
+    const dayOfWeek = doDate ? new Date(doDate + 'T00:00:00').getDay() : -1; // 0=Sun, 6=Sat
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const safeDate  = doDate || '';
     return `
-    <div class="kanban-col"
+    <div class="kanban-col${isWeekend ? ' is-weekend' : ''}"
          ondragover="kDragOver(event)" ondrop="kDrop(event)" ondragleave="kDragLeave(event)"
          data-do-date="${safeDate}">
         <div class="kanban-col-header">
