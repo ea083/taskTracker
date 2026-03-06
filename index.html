@@ -991,6 +991,22 @@
         }
         .subtask-add-btn:hover { background: var(--primary-hover); }
 
+        /* ── Full description on expand ── */
+        .task-desc.expanded {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: unset;
+        }
+
+        /* ── Sub-subtask nesting ── */
+        .subtask-children {
+            margin-left: 22px;
+            padding-left: 10px;
+            border-left: 2px solid var(--border);
+            margin-top: 2px;
+            margin-bottom: 4px;
+        }
+
         /* ── Responsive ── */
         @media (max-width: 640px) {
             header { flex-wrap: wrap; gap: 10px; }
@@ -1387,7 +1403,10 @@ function initDatabase() {
         const incoming = Object.values(raw).map(t => ({
             ...t,
             timeEntries: Object.values(t.timeEntries || {}),
-            subtasks:    Object.values(t.subtasks    || {}),
+            subtasks: Object.values(t.subtasks || {}).map(s => ({
+                ...s,
+                subtasks: Object.values(s.subtasks || {}), // sub-subtasks
+            })),
         }));
         state.tasks = incoming;
 
@@ -1455,7 +1474,11 @@ function save() {
         const entries     = {};
         const subtasksObj = {};
         (task.timeEntries || []).forEach(e => { entries[e.id]      = e; });
-        (task.subtasks    || []).forEach(s => { subtasksObj[s.id]  = s; });
+        (task.subtasks || []).forEach(s => {
+            const subSubObj = {};
+            (s.subtasks || []).forEach(ss => { subSubObj[ss.id] = ss; });
+            subtasksObj[s.id] = { ...s, subtasks: subSubObj };
+        });
         obj[task.id] = { ...task, timeEntries: entries, subtasks: subtasksObj };
     });
     tasksRef.set(obj).catch(err => console.error('Save error:', err.message));
@@ -1704,7 +1727,7 @@ function taskCardHtml(t) {
                     ${isRunning ? '<span class="dot"></span>' : ''}
                     <span class="tname">${esc(t.name)}</span>
                 </div>
-                ${t.description ? `<div class="task-desc">${esc(t.description)}</div>` : ''}
+                ${t.description ? `<div class="task-desc${isExpanded ? ' expanded' : ''}" id="td-desc-${t.id}">${esc(t.description)}</div>` : ''}
                 <div class="task-meta">
                     <span class="badge badge-${t.priority}">${t.priority}</span>
                     <span class="badge badge-${t.status}">${t.status.replace('-',' ')}</span>
@@ -1736,14 +1759,39 @@ function taskCardHtml(t) {
         </button>
         <div class="subtask-panel${isExpanded ? ' open' : ''}" id="subtask-panel-${t.id}">
             <div class="subtask-inner">
-                ${subtasks.map(s => `
+                ${subtasks.map(s => {
+                    const subSubs  = s.subtasks || [];
+                    const ssDone   = subSubs.filter(ss => ss.done).length;
+                    return `
                 <div class="subtask-item">
                     <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
                            onchange="toggleSubtask('${t.id}','${s.id}')">
-                    <span class="subtask-name${s.done ? ' done' : ''}">${esc(s.name)}</span>
+                    <span class="subtask-name${s.done ? ' done' : ''}" id="sname-${t.id}-${s.id}">${esc(s.name)}</span>
+                    ${subSubs.length > 0 ? `<span style="font-size:10px;color:var(--text-muted)">(${ssDone}/${subSubs.length})</span>` : ''}
+                    <button class="icon-btn" style="width:22px;height:22px;font-size:11px;margin-left:auto"
+                            onclick="startEditSubtask('${t.id}','${s.id}')" title="Edit">&#x270E;</button>
                     <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px"
                             onclick="deleteSubtask('${t.id}','${s.id}')">&#x2715;</button>
-                </div>`).join('')}
+                </div>
+                <div class="subtask-children">
+                    ${subSubs.map(ss => `
+                    <div class="subtask-item">
+                        <input type="checkbox" class="subtask-checkbox" ${ss.done ? 'checked' : ''}
+                               onchange="toggleSubSubtask('${t.id}','${s.id}','${ss.id}')">
+                        <span class="subtask-name${ss.done ? ' done' : ''}" id="sname-${t.id}-${s.id}-${ss.id}">${esc(ss.name)}</span>
+                        <button class="icon-btn" style="width:22px;height:22px;font-size:11px;margin-left:auto"
+                                onclick="startEditSubSubtask('${t.id}','${s.id}','${ss.id}')" title="Edit">&#x270E;</button>
+                        <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px"
+                                onclick="deleteSubSubtask('${t.id}','${s.id}','${ss.id}')">&#x2715;</button>
+                    </div>`).join('')}
+                    <div class="subtask-add">
+                        <input type="text" class="subtask-input" id="ssi-${t.id}-${s.id}"
+                               placeholder="Add a sub-task…" maxlength="120"
+                               onkeydown="if(event.key==='Enter')addSubSubtask('${t.id}','${s.id}')">
+                        <button class="subtask-add-btn" onclick="addSubSubtask('${t.id}','${s.id}')">Add</button>
+                    </div>
+                </div>`;
+                }).join('')}
                 <div class="subtask-add">
                     <input type="text" class="subtask-input" id="si-${t.id}"
                            placeholder="Add a subtask…" maxlength="120"
@@ -1969,8 +2017,10 @@ function toggleSubtasks(taskId) {
     // Update DOM directly for smoother animation (no full re-render needed)
     const panel   = document.getElementById(`subtask-panel-${taskId}`);
     const chevron = document.querySelector(`#card-${taskId} .subtask-chevron`);
+    const descEl  = document.getElementById(`td-desc-${taskId}`);
     if (panel)   panel.classList.toggle('open', expandedTasks.has(taskId));
     if (chevron) chevron.classList.toggle('open', expandedTasks.has(taskId));
+    if (descEl)  descEl.classList.toggle('expanded', expandedTasks.has(taskId));
 }
 
 function addSubtask(taskId) {
@@ -2003,6 +2053,119 @@ function deleteSubtask(taskId, subtaskId) {
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
     task.subtasks = (task.subtasks || []).filter(s => s.id !== subtaskId);
+    save();
+    render();
+}
+
+// ── Sub-subtask CRUD ───────────────────────────
+function addSubSubtask(taskId, subtaskId) {
+    const input = document.getElementById(`ssi-${taskId}-${subtaskId}`);
+    if (!input) return;
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    const task    = state.tasks.find(t => t.id === taskId);
+    const subtask = task?.subtasks?.find(s => s.id === subtaskId);
+    if (!subtask) return;
+    if (!subtask.subtasks) subtask.subtasks = [];
+    subtask.subtasks.push({ id: uid(), name, done: false, createdAt: Date.now() });
+    expandedTasks.add(taskId);
+    save();
+    render();
+    const newInput = document.getElementById(`ssi-${taskId}-${subtaskId}`);
+    if (newInput) newInput.focus();
+}
+
+function toggleSubSubtask(taskId, subtaskId, subSubId) {
+    const task    = state.tasks.find(t => t.id === taskId);
+    const subtask = task?.subtasks?.find(s => s.id === subtaskId);
+    const subSub  = subtask?.subtasks?.find(ss => ss.id === subSubId);
+    if (!subSub) return;
+    subSub.done = !subSub.done;
+    save();
+    render();
+}
+
+function deleteSubSubtask(taskId, subtaskId, subSubId) {
+    const task    = state.tasks.find(t => t.id === taskId);
+    const subtask = task?.subtasks?.find(s => s.id === subtaskId);
+    if (!subtask) return;
+    subtask.subtasks = (subtask.subtasks || []).filter(ss => ss.id !== subSubId);
+    save();
+    render();
+}
+
+// ── Inline subtask editing ─────────────────────
+function startEditSubtask(taskId, subtaskId) {
+    const span = document.getElementById(`sname-${taskId}-${subtaskId}`);
+    if (!span) return;
+    const currentName = span.textContent;
+    const input = document.createElement('input');
+    input.type  = 'text';
+    input.value = currentName;
+    input.className = 'subtask-input';
+    input.style.cssText = 'flex:1;min-width:0;';
+    input.maxLength = 120;
+    const finish = () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            saveSubtaskEdit(taskId, subtaskId, newName);
+        } else {
+            input.replaceWith(span);
+        }
+    };
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', finish); input.replaceWith(span); }
+    });
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+}
+
+function saveSubtaskEdit(taskId, subtaskId, newName) {
+    const task    = state.tasks.find(t => t.id === taskId);
+    const subtask = task?.subtasks?.find(s => s.id === subtaskId);
+    if (!subtask) return;
+    subtask.name = newName;
+    save();
+    render();
+}
+
+function startEditSubSubtask(taskId, subtaskId, subSubId) {
+    const span = document.getElementById(`sname-${taskId}-${subtaskId}-${subSubId}`);
+    if (!span) return;
+    const currentName = span.textContent;
+    const input = document.createElement('input');
+    input.type  = 'text';
+    input.value = currentName;
+    input.className = 'subtask-input';
+    input.style.cssText = 'flex:1;min-width:0;';
+    input.maxLength = 120;
+    const finish = () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            saveSubSubtaskEdit(taskId, subtaskId, subSubId, newName);
+        } else {
+            input.replaceWith(span);
+        }
+    };
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', finish); input.replaceWith(span); }
+    });
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+}
+
+function saveSubSubtaskEdit(taskId, subtaskId, subSubId, newName) {
+    const task    = state.tasks.find(t => t.id === taskId);
+    const subtask = task?.subtasks?.find(s => s.id === subtaskId);
+    const subSub  = subtask?.subtasks?.find(ss => ss.id === subSubId);
+    if (!subSub) return;
+    subSub.name = newName;
     save();
     render();
 }
