@@ -619,6 +619,94 @@
             font-size: 13px;
         }
 
+        /* ── Subtasks ── */
+        .subtask-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-muted);
+            padding: 5px 0 2px;
+            margin-top: 4px;
+            font-family: inherit;
+            transition: color 0.15s;
+        }
+        .subtask-toggle:hover { color: var(--primary); }
+        .subtask-chevron {
+            font-size: 9px;
+            transition: transform 0.25s;
+            line-height: 1;
+        }
+        .subtask-chevron.open { transform: rotate(90deg); }
+        .subtask-panel {
+            overflow: hidden;
+            max-height: 0;
+            transition: max-height 0.3s ease;
+        }
+        .subtask-panel.open { max-height: 800px; }
+        .subtask-inner {
+            border-top: 1px solid var(--border);
+            padding-top: 8px;
+            margin-top: 6px;
+        }
+        .subtask-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 3px 0;
+        }
+        .subtask-checkbox {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--primary);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .subtask-name {
+            flex: 1;
+            font-size: 13px;
+            color: var(--text);
+        }
+        .subtask-name.done {
+            text-decoration: line-through;
+            color: var(--text-muted);
+        }
+        .subtask-add {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .subtask-input {
+            flex: 1;
+            padding: 5px 9px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 12px;
+            outline: none;
+            background: var(--surface);
+            color: var(--text);
+            font-family: inherit;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .subtask-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-light); }
+        .subtask-add-btn {
+            padding: 5px 11px;
+            border-radius: var(--radius);
+            border: none;
+            background: var(--primary);
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .subtask-add-btn:hover { background: var(--primary-hover); }
+
         /* ── Responsive ── */
         @media (max-width: 640px) {
             header { flex-wrap: wrap; gap: 10px; }
@@ -809,6 +897,8 @@ const state = {
     editingTaskId: null,
 };
 
+const expandedTasks = new Set(); // tracks which task cards have subtasks expanded
+
 let currentUser   = null;
 let tasksRef      = null;
 let offListener   = null;
@@ -940,6 +1030,7 @@ function initDatabase() {
         const incoming = Object.values(raw).map(t => ({
             ...t,
             timeEntries: Object.values(t.timeEntries || {}),
+            subtasks:    Object.values(t.subtasks    || {}),
         }));
         state.tasks = incoming;
 
@@ -978,9 +1069,11 @@ function save() {
     // Convert tasks array → Firebase object
     const obj = {};
     state.tasks.forEach(task => {
-        const entries = {};
-        (task.timeEntries || []).forEach(e => { entries[e.id] = e; });
-        obj[task.id] = { ...task, timeEntries: entries };
+        const entries     = {};
+        const subtasksObj = {};
+        (task.timeEntries || []).forEach(e => { entries[e.id]      = e; });
+        (task.subtasks    || []).forEach(s => { subtasksObj[s.id]  = s; });
+        obj[task.id] = { ...task, timeEntries: entries, subtasks: subtasksObj };
     });
     tasksRef.set(obj).catch(err => console.error('Save error:', err.message));
 }
@@ -1037,6 +1130,7 @@ function createTask(data) {
         createdAt:    Date.now(),
         totalSeconds: 0,
         timeEntries:  [],
+        subtasks:     [],
     });
     save();
     render();
@@ -1173,9 +1267,12 @@ function renderTasks() {
         return;
     }
     list.innerHTML = tasks.map(t => {
-        const isRunning = state.activeTimer?.taskId === t.id;
-        const total     = taskTotal(t);
-        const isDone    = t.status === 'completed';
+        const isRunning  = state.activeTimer?.taskId === t.id;
+        const total      = taskTotal(t);
+        const isDone     = t.status === 'completed';
+        const subtasks   = t.subtasks || [];
+        const doneCount  = subtasks.filter(s => s.done).length;
+        const isExpanded = expandedTasks.has(t.id);
         return `
         <div class="task-card priority-${t.priority} status-${t.status}${isRunning ? ' running' : ''}" id="card-${t.id}">
             <div class="task-row">
@@ -1207,6 +1304,28 @@ function renderTasks() {
                     </button>
                     <button class="icon-btn" title="Edit" onclick="openEditTask('${t.id}')">&#x270E;</button>
                     <button class="icon-btn danger" title="Delete" onclick="confirmDelete('${t.id}')">&#x2715;</button>
+                </div>
+            </div>
+            <button class="subtask-toggle" onclick="toggleSubtasks('${t.id}')">
+                <span class="subtask-chevron${isExpanded ? ' open' : ''}">&#x25B6;</span>
+                Subtasks${subtasks.length > 0 ? ` (${doneCount}/${subtasks.length})` : ''}
+            </button>
+            <div class="subtask-panel${isExpanded ? ' open' : ''}" id="subtask-panel-${t.id}">
+                <div class="subtask-inner">
+                    ${subtasks.map(s => `
+                    <div class="subtask-item">
+                        <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
+                               onchange="toggleSubtask('${t.id}','${s.id}')">
+                        <span class="subtask-name${s.done ? ' done' : ''}">${esc(s.name)}</span>
+                        <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px"
+                                onclick="deleteSubtask('${t.id}','${s.id}')">&#x2715;</button>
+                    </div>`).join('')}
+                    <div class="subtask-add">
+                        <input type="text" class="subtask-input" id="si-${t.id}"
+                               placeholder="Add a subtask…" maxlength="120"
+                               onkeydown="if(event.key==='Enter')addSubtask('${t.id}')">
+                        <button class="subtask-add-btn" onclick="addSubtask('${t.id}')">Add</button>
+                    </div>
                 </div>
             </div>
         </div>`;
@@ -1342,6 +1461,51 @@ function confirmDelete(id) {
     if (t && confirm(`Delete "${t.name}"?\n\nAll time entries will also be deleted. This cannot be undone.`)) {
         deleteTask(id);
     }
+}
+
+// ── Subtasks ───────────────────────────────────
+function toggleSubtasks(taskId) {
+    if (expandedTasks.has(taskId)) {
+        expandedTasks.delete(taskId);
+    } else {
+        expandedTasks.add(taskId);
+    }
+    // Update DOM directly for smoother animation (no full re-render needed)
+    const panel   = document.getElementById(`subtask-panel-${taskId}`);
+    const chevron = document.querySelector(`#card-${taskId} .subtask-chevron`);
+    if (panel)   panel.classList.toggle('open', expandedTasks.has(taskId));
+    if (chevron) chevron.classList.toggle('open', expandedTasks.has(taskId));
+}
+
+function addSubtask(taskId) {
+    const input = document.getElementById(`si-${taskId}`);
+    if (!input) return;
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    if (!task.subtasks) task.subtasks = [];
+    task.subtasks.push({ id: uid(), name, done: false, createdAt: Date.now() });
+    expandedTasks.add(taskId); // keep panel open after adding
+    save();
+    render();
+}
+
+function toggleSubtask(taskId, subtaskId) {
+    const task    = state.tasks.find(t => t.id === taskId);
+    const subtask = task?.subtasks?.find(s => s.id === subtaskId);
+    if (!subtask) return;
+    subtask.done = !subtask.done;
+    save();
+    render();
+}
+
+function deleteSubtask(taskId, subtaskId) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    task.subtasks = (task.subtasks || []).filter(s => s.id !== subtaskId);
+    save();
+    render();
 }
 
 // ── Chart ─────────────────────────────────────
