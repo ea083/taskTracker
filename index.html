@@ -659,6 +659,22 @@
             padding: 1px 7px;
             font-size: 10px;
         }
+        .active-section {
+            margin-bottom: 18px;
+            padding-bottom: 18px;
+            border-bottom: 2px solid var(--primary-light);
+        }
+        .active-section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            padding: 0 2px 8px;
+        }
         /* category manager modal */
         .cat-item {
             display: flex;
@@ -1806,6 +1822,7 @@ function taskCardHtml(t) {
 function renderTasks() {
     const list  = document.getElementById('task-list');
     const tasks = filtered();
+
     if (!tasks.length) {
         const isFiltered = state.filter !== 'all' || state.search || state.categoryFilter !== 'all';
         list.innerHTML = `<div class="empty-state">
@@ -1816,15 +1833,32 @@ function renderTasks() {
         return;
     }
 
+    // Pin the active timer task at the top in its own section
+    const activeId   = state.activeTimer?.taskId;
+    const activeTask = activeId ? tasks.find(t => t.id === activeId) : null;
+    const rest       = activeTask ? tasks.filter(t => t.id !== activeId) : tasks;
+
+    let html = '';
+
+    if (activeTask) {
+        html += `<div class="active-section">
+            <div class="active-section-header">
+                <span class="dot"></span> Currently Clocked In
+            </div>
+            ${taskCardHtml(activeTask)}
+        </div>`;
+    }
+
     if (!state.groupByCategory) {
-        list.innerHTML = tasks.map(taskCardHtml).join('');
+        html += rest.map(taskCardHtml).join('');
+        list.innerHTML = html;
         return;
     }
 
     // Group by category
     const groups = new Map(); // catId → task[]
     const noCat  = [];
-    tasks.forEach(t => {
+    rest.forEach(t => {
         if (t.category && state.categories.find(c => c.id === t.category)) {
             if (!groups.has(t.category)) groups.set(t.category, []);
             groups.get(t.category).push(t);
@@ -1833,7 +1867,6 @@ function renderTasks() {
         }
     });
 
-    let html = '';
     state.categories.forEach(cat => {
         const catTasks = groups.get(cat.id);
         if (!catTasks || catTasks.length === 0) return;
