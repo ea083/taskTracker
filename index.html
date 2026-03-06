@@ -796,6 +796,8 @@
         .kanban-card:active { cursor: grabbing; }
         .kanban-card:hover  { box-shadow: var(--shadow-md); }
         .kanban-card.dragging { opacity: 0.35; cursor: grabbing; }
+        .kanban-card.drag-above { box-shadow: 0 -3px 0 0 var(--primary), var(--shadow-md); }
+        .kanban-card.drag-below { box-shadow: 0  3px 0 0 var(--primary), var(--shadow-md); }
         .kanban-card.priority-high   { border-left-color: #ef4444; }
         .kanban-card.priority-medium { border-left-color: #f59e0b; }
         .kanban-card.priority-low    { border-left-color: #10b981; }
@@ -2252,7 +2254,8 @@ function setView(v) {
 }
 
 // ── Kanban Board ───────────────────────────────
-let dragTaskId = null;
+let dragTaskId   = null;
+let dragOverCard = null; // { taskId, position: 'before'|'after' }
 
 function formatDoDateLabel(doDate, todayStr) {
     if (!doDate) return 'Unscheduled';
@@ -2275,7 +2278,9 @@ function kanbanCardHtml(task) {
     return `
     <div class="kanban-card priority-${task.priority} status-${task.status}${isRunning ? ' running' : ''}"
          draggable="true" data-task-id="${task.id}"
-         ondragstart="kDragStart(event)" ondragend="kDragEnd(event)">
+         ondragstart="kDragStart(event)" ondragend="kDragEnd(event)"
+         ondragover="kCardDragOver(event,'${task.id}')" ondragleave="kCardDragLeave(event)"
+         ondrop="kCardDrop(event,'${task.id}')">
         <div class="kanban-card-name">
             ${isRunning ? '<span class="dot" style="margin-right:5px;vertical-align:middle"></span>' : ''}${esc(task.name)}
         </div>
@@ -2412,6 +2417,9 @@ function kDragEnd(e) {
     e.currentTarget.classList.remove('dragging');
     document.querySelectorAll('.kanban-col.drag-over')
         .forEach(c => c.classList.remove('drag-over'));
+    document.querySelectorAll('.kanban-card.drag-above, .kanban-card.drag-below')
+        .forEach(c => c.classList.remove('drag-above', 'drag-below'));
+    dragOverCard = null;
 }
 
 function kDragOver(e) {
@@ -2434,7 +2442,57 @@ function kDrop(e) {
     const newDate = e.currentTarget.dataset.doDate || null;
     const task = state.tasks.find(t => t.id === dragTaskId);
     if (task) { task.doDate = newDate; save(); renderBoard(); }
-    dragTaskId = null;
+    dragTaskId   = null;
+    dragOverCard = null;
+}
+
+// ── Card-level drag: reorder within / across columns ──────────────
+function kCardDragOver(e, taskId) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragTaskId === taskId) return; // hovering over self — ignore
+
+    const rect     = e.currentTarget.getBoundingClientRect();
+    const position = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+
+    // Update indicator on this card only
+    e.currentTarget.classList.toggle('drag-above', position === 'before');
+    e.currentTarget.classList.toggle('drag-below', position === 'after');
+    dragOverCard = { taskId, position };
+}
+
+function kCardDragLeave(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+        e.currentTarget.classList.remove('drag-above', 'drag-below');
+    }
+}
+
+function kCardDrop(e, taskId) {
+    e.preventDefault();
+    e.stopPropagation(); // prevent the column's kDrop from also firing
+    e.currentTarget.classList.remove('drag-above', 'drag-below');
+
+    if (!dragTaskId || dragTaskId === taskId) { dragOverCard = null; return; }
+
+    const position   = dragOverCard?.position ?? 'after';
+    const col        = e.currentTarget.closest('.kanban-col');
+    const newDate    = col?.dataset.doDate || null;
+    const draggedIdx = state.tasks.findIndex(t => t.id === dragTaskId);
+    if (draggedIdx === -1) return;
+
+    // Update the dragged task's date to match the target column
+    state.tasks[draggedIdx].doDate = newDate || null;
+
+    // Remove dragged task from its current position, then re-insert next to target
+    const [dragged]    = state.tasks.splice(draggedIdx, 1);
+    const newTargetIdx = state.tasks.findIndex(t => t.id === taskId);
+    const insertIdx    = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+    state.tasks.splice(insertIdx < 0 ? state.tasks.length : insertIdx, 0, dragged);
+
+    save();
+    renderBoard();
+    dragTaskId   = null;
+    dragOverCard = null;
 }
 
 function shiftTaskDate(taskId, days) {
