@@ -619,6 +619,67 @@
             font-size: 13px;
         }
 
+        /* ── Categories ── */
+        .cat-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: #fff;
+        }
+        .cat-dot {
+            display: inline-block;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .task-group-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            padding: 14px 2px 6px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 8px;
+        }
+        .task-group-header:first-child { padding-top: 0; }
+        .task-group { margin-bottom: 8px; }
+        .task-group-count {
+            background: var(--border);
+            color: var(--text-muted);
+            border-radius: 999px;
+            padding: 1px 7px;
+            font-size: 10px;
+        }
+        /* category manager modal */
+        .cat-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .cat-item:last-child { border-bottom: none; }
+        .cat-color-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+        .cat-color-swatch {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2.5px solid transparent;
+            cursor: pointer;
+            transition: transform 0.15s, border-color 0.15s;
+        }
+        .cat-color-swatch:hover { transform: scale(1.18); }
+        .cat-color-swatch.selected { border-color: var(--text); }
+
         /* ── Tabs ── */
         .tab-bar {
             display: flex;
@@ -994,6 +1055,11 @@
                     <option value="name">Sort: Name</option>
                     <option value="time">Sort: Time</option>
                 </select>
+                <select class="sort-select" id="cat-filter" onchange="setCategoryFilter(this.value)">
+                    <option value="all">All Categories</option>
+                </select>
+                <button class="btn btn-ghost" id="group-btn" onclick="toggleGroupByCategory()" title="Group tasks by category">&#x229E; Group</button>
+                <button class="btn btn-ghost" onclick="openCategoryManager()" title="Manage categories">&#x1F3F7; Categories</button>
             </div>
             <!-- Weekly Hours Chart -->
             <div class="chart-panel" id="chart-panel">
@@ -1063,6 +1129,15 @@
                 </div>
             </div>
             <div class="form-group">
+                <label for="task-category">Category</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <select id="task-category" style="flex:1">
+                        <option value="">— None —</option>
+                    </select>
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="openCategoryManager()">+ New</button>
+                </div>
+            </div>
+            <div class="form-group">
                 <label for="task-do-date">Do Date <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(optional — for board view)</span></label>
                 <input type="date" id="task-do-date">
             </div>
@@ -1088,6 +1163,20 @@
     </div>
 </div>
 
+<!-- Category Manager Modal -->
+<div class="modal-overlay" id="cat-modal" onclick="overlayClick(event,'cat-modal')">
+    <div class="modal" style="max-width:400px">
+        <div class="modal-header">
+            <h2>Manage Categories</h2>
+            <button class="close-btn" onclick="closeModal('cat-modal')">&times;</button>
+        </div>
+        <div class="modal-body" id="cat-modal-body"></div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('cat-modal')">Done</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // Apply dark mode immediately to avoid flash on load
 if (localStorage.getItem('tt_dark') === '1') document.body.classList.add('dark');
@@ -1108,21 +1197,28 @@ const FIREBASE_CONFIG = {
 
 // ── State ─────────────────────────────────────
 const state = {
-    tasks:         [],
-    activeTimer:   null, // { taskId, startTime, entryId, intervalId }
-    filter:        'all',
-    search:        '',
-    sort:          'created',
-    editingTaskId: null,
-    view:          'list', // 'list' | 'board'
+    tasks:           [],
+    activeTimer:     null, // { taskId, startTime, entryId, intervalId }
+    filter:          'all',
+    search:          '',
+    sort:            'created',
+    editingTaskId:   null,
+    view:            'list', // 'list' | 'board'
+    categories:      [],    // [{ id, name, color, createdAt }]
+    categoryFilter:  'all', // 'all' | categoryId
+    groupByCategory: false,
 };
+
+const CAT_COLORS = ['#4f46e5','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#f97316','#06b6d4','#84cc16','#ec4899'];
 
 const expandedTasks = new Set(); // tracks which task cards have subtasks expanded
 
-let currentUser   = null;
-let tasksRef      = null;
-let offListener   = null;
-let dbInitialized = false;
+let currentUser    = null;
+let tasksRef       = null;
+let categoriesRef  = null;
+let offListener    = null;
+let offCatListener = null;
+let dbInitialized  = false;
 let auth, db;
 
 // ── Error display ──────────────────────────────
@@ -1237,14 +1333,19 @@ function showLogin() {
     document.getElementById('login-screen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
     state.tasks = [];
+    state.categories = [];
+    state.categoryFilter = 'all';
+    state.groupByCategory = false;
     if (state.activeTimer) { clearInterval(state.activeTimer.intervalId); state.activeTimer = null; }
     localStorage.removeItem('tt_timer');
 }
 
 // ── Firebase Database ──────────────────────────
 function initDatabase() {
-    if (offListener) offListener();
-    tasksRef     = db.ref('users/' + currentUser.uid + '/tasks');
+    if (offListener)    offListener();
+    if (offCatListener) offCatListener();
+    tasksRef      = db.ref('users/' + currentUser.uid + '/tasks');
+    categoriesRef = db.ref('users/' + currentUser.uid + '/categories');
     dbInitialized = false;
 
     offListener = tasksRef.on('value', snapshot => {
@@ -1262,14 +1363,21 @@ function initDatabase() {
             try { initChart(); } catch(e) { console.error('Chart init error:', e); }
         }
         render();
-    }, err => {
-        console.error('DB listener error:', err.message);
-    });
+    }, err => { console.error('DB listener error:', err.message); });
+
+    offCatListener = categoriesRef.on('value', snapshot => {
+        const raw = snapshot.val() || {};
+        state.categories = Object.values(raw).sort((a, b) => a.createdAt - b.createdAt);
+        updateCategorySelects();
+        if (dbInitialized) render();
+    }, err => { console.error('Category listener error:', err.message); });
 }
 
 function teardownDatabase() {
-    if (offListener) { offListener(); offListener = null; }
+    if (offListener)    { offListener();    offListener    = null; }
+    if (offCatListener) { offCatListener(); offCatListener = null; }
     tasksRef      = null;
+    categoriesRef = null;
     dbInitialized = false;
     if (hoursChart) { hoursChart.destroy(); hoursChart = null; }
 }
@@ -1350,6 +1458,7 @@ function createTask(data) {
         priority:     data.priority || 'medium',
         status:       data.status   || 'todo',
         doDate:       data.doDate   || null,
+        category:     data.category || null,
         createdAt:    Date.now(),
         totalSeconds: 0,
         timeEntries:  [],
@@ -1460,7 +1569,8 @@ const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 
 function filtered() {
     let tasks = [...state.tasks];
-    if (state.filter !== 'all') tasks = tasks.filter(t => t.status === state.filter);
+    if (state.filter !== 'all')         tasks = tasks.filter(t => t.status === state.filter);
+    if (state.categoryFilter !== 'all') tasks = tasks.filter(t => t.category === state.categoryFilter);
     if (state.search) {
         const q = state.search.toLowerCase();
         tasks = tasks.filter(t => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q));
@@ -1477,11 +1587,78 @@ function filtered() {
 // ── Rendering ─────────────────────────────────
 function render() { renderTasks(); updateStats(); updateChart(); if (state.view === 'board') renderBoard(); }
 
+function taskCardHtml(t) {
+    const isRunning  = state.activeTimer?.taskId === t.id;
+    const total      = taskTotal(t);
+    const isDone     = t.status === 'completed';
+    const subtasks   = t.subtasks || [];
+    const doneCount  = subtasks.filter(s => s.done).length;
+    const isExpanded = expandedTasks.has(t.id);
+    const cat        = t.category ? state.categories.find(c => c.id === t.category) : null;
+    return `
+    <div class="task-card priority-${t.priority} status-${t.status}${isRunning ? ' running' : ''}" id="card-${t.id}">
+        <div class="task-row">
+            <div class="task-body">
+                <div class="task-title">
+                    ${isRunning ? '<span class="dot"></span>' : ''}
+                    <span class="tname">${esc(t.name)}</span>
+                </div>
+                ${t.description ? `<div class="task-desc">${esc(t.description)}</div>` : ''}
+                <div class="task-meta">
+                    <span class="badge badge-${t.priority}">${t.priority}</span>
+                    <span class="badge badge-${t.status}">${t.status.replace('-',' ')}</span>
+                    ${cat ? `<span class="cat-badge" style="background:${cat.color}"><span class="cat-dot" style="width:7px;height:7px;background:rgba(255,255,255,0.5)"></span>${esc(cat.name)}</span>` : ''}
+                    <span class="task-date">Created ${fmtDate(t.createdAt)}</span>
+                </div>
+            </div>
+            <div class="task-actions">
+                <span class="time-display${isRunning ? ' active' : ''}" id="td-${t.id}"
+                      onclick="openTimeLog('${t.id}')" title="View time log">
+                    ${total > 0 ? fmtSecs(total) : '&mdash;'}
+                </span>
+                ${!isDone ? `<button class="timer-btn ${isRunning ? 'stop' : 'start'}"
+                    onclick="${isRunning ? 'stopTimer(true)' : `startTimer('${t.id}')`}"
+                    title="${isRunning ? 'Stop timer' : 'Start timer'}">
+                    ${isRunning ? '&#x23F9;' : '&#x25B6;'}
+                </button>` : ''}
+                <button class="icon-btn success" title="${isDone ? 'Reopen' : 'Complete'}"
+                        onclick="toggleComplete('${t.id}')">
+                    ${isDone ? '&#x21A9;' : '&#x2713;'}
+                </button>
+                <button class="icon-btn" title="Edit" onclick="openEditTask('${t.id}')">&#x270E;</button>
+                <button class="icon-btn danger" title="Delete" onclick="confirmDelete('${t.id}')">&#x2715;</button>
+            </div>
+        </div>
+        <button class="subtask-toggle" onclick="toggleSubtasks('${t.id}')">
+            <span class="subtask-chevron${isExpanded ? ' open' : ''}">&#x25B6;</span>
+            Subtasks${subtasks.length > 0 ? ` (${doneCount}/${subtasks.length})` : ''}
+        </button>
+        <div class="subtask-panel${isExpanded ? ' open' : ''}" id="subtask-panel-${t.id}">
+            <div class="subtask-inner">
+                ${subtasks.map(s => `
+                <div class="subtask-item">
+                    <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
+                           onchange="toggleSubtask('${t.id}','${s.id}')">
+                    <span class="subtask-name${s.done ? ' done' : ''}">${esc(s.name)}</span>
+                    <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px"
+                            onclick="deleteSubtask('${t.id}','${s.id}')">&#x2715;</button>
+                </div>`).join('')}
+                <div class="subtask-add">
+                    <input type="text" class="subtask-input" id="si-${t.id}"
+                           placeholder="Add a subtask…" maxlength="120"
+                           onkeydown="if(event.key==='Enter')addSubtask('${t.id}')">
+                    <button class="subtask-add-btn" onclick="addSubtask('${t.id}')">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
 function renderTasks() {
     const list  = document.getElementById('task-list');
     const tasks = filtered();
     if (!tasks.length) {
-        const isFiltered = state.filter !== 'all' || state.search;
+        const isFiltered = state.filter !== 'all' || state.search || state.categoryFilter !== 'all';
         list.innerHTML = `<div class="empty-state">
             <div class="es-icon">${isFiltered ? '&#x1F50D;' : '&#x1F4CB;'}</div>
             <div class="es-title">${isFiltered ? 'No matching tasks' : 'No tasks yet'}</div>
@@ -1489,70 +1666,51 @@ function renderTasks() {
         </div>`;
         return;
     }
-    list.innerHTML = tasks.map(t => {
-        const isRunning  = state.activeTimer?.taskId === t.id;
-        const total      = taskTotal(t);
-        const isDone     = t.status === 'completed';
-        const subtasks   = t.subtasks || [];
-        const doneCount  = subtasks.filter(s => s.done).length;
-        const isExpanded = expandedTasks.has(t.id);
-        return `
-        <div class="task-card priority-${t.priority} status-${t.status}${isRunning ? ' running' : ''}" id="card-${t.id}">
-            <div class="task-row">
-                <div class="task-body">
-                    <div class="task-title">
-                        ${isRunning ? '<span class="dot"></span>' : ''}
-                        <span class="tname">${esc(t.name)}</span>
-                    </div>
-                    ${t.description ? `<div class="task-desc">${esc(t.description)}</div>` : ''}
-                    <div class="task-meta">
-                        <span class="badge badge-${t.priority}">${t.priority}</span>
-                        <span class="badge badge-${t.status}">${t.status.replace('-',' ')}</span>
-                        <span class="task-date">Created ${fmtDate(t.createdAt)}</span>
-                    </div>
-                </div>
-                <div class="task-actions">
-                    <span class="time-display${isRunning ? ' active' : ''}" id="td-${t.id}"
-                          onclick="openTimeLog('${t.id}')" title="View time log">
-                        ${total > 0 ? fmtSecs(total) : '&mdash;'}
-                    </span>
-                    ${!isDone ? `<button class="timer-btn ${isRunning ? 'stop' : 'start'}"
-                        onclick="${isRunning ? 'stopTimer(true)' : `startTimer('${t.id}')`}"
-                        title="${isRunning ? 'Stop timer' : 'Start timer'}">
-                        ${isRunning ? '&#x23F9;' : '&#x25B6;'}
-                    </button>` : ''}
-                    <button class="icon-btn success" title="${isDone ? 'Reopen' : 'Complete'}"
-                            onclick="toggleComplete('${t.id}')">
-                        ${isDone ? '&#x21A9;' : '&#x2713;'}
-                    </button>
-                    <button class="icon-btn" title="Edit" onclick="openEditTask('${t.id}')">&#x270E;</button>
-                    <button class="icon-btn danger" title="Delete" onclick="confirmDelete('${t.id}')">&#x2715;</button>
-                </div>
+
+    if (!state.groupByCategory) {
+        list.innerHTML = tasks.map(taskCardHtml).join('');
+        return;
+    }
+
+    // Group by category
+    const groups = new Map(); // catId → task[]
+    const noCat  = [];
+    tasks.forEach(t => {
+        if (t.category && state.categories.find(c => c.id === t.category)) {
+            if (!groups.has(t.category)) groups.set(t.category, []);
+            groups.get(t.category).push(t);
+        } else {
+            noCat.push(t);
+        }
+    });
+
+    let html = '';
+    state.categories.forEach(cat => {
+        const catTasks = groups.get(cat.id);
+        if (!catTasks || catTasks.length === 0) return;
+        html += `<div class="task-group">
+            <div class="task-group-header">
+                <span class="cat-dot" style="width:10px;height:10px;background:${cat.color}"></span>
+                ${esc(cat.name)}
+                <span class="task-group-count">${catTasks.length}</span>
             </div>
-            <button class="subtask-toggle" onclick="toggleSubtasks('${t.id}')">
-                <span class="subtask-chevron${isExpanded ? ' open' : ''}">&#x25B6;</span>
-                Subtasks${subtasks.length > 0 ? ` (${doneCount}/${subtasks.length})` : ''}
-            </button>
-            <div class="subtask-panel${isExpanded ? ' open' : ''}" id="subtask-panel-${t.id}">
-                <div class="subtask-inner">
-                    ${subtasks.map(s => `
-                    <div class="subtask-item">
-                        <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
-                               onchange="toggleSubtask('${t.id}','${s.id}')">
-                        <span class="subtask-name${s.done ? ' done' : ''}">${esc(s.name)}</span>
-                        <button class="icon-btn danger" style="width:22px;height:22px;font-size:11px"
-                                onclick="deleteSubtask('${t.id}','${s.id}')">&#x2715;</button>
-                    </div>`).join('')}
-                    <div class="subtask-add">
-                        <input type="text" class="subtask-input" id="si-${t.id}"
-                               placeholder="Add a subtask…" maxlength="120"
-                               onkeydown="if(event.key==='Enter')addSubtask('${t.id}')">
-                        <button class="subtask-add-btn" onclick="addSubtask('${t.id}')">Add</button>
-                    </div>
-                </div>
+            <div class="task-list">
+                ${catTasks.map(taskCardHtml).join('')}
             </div>
         </div>`;
-    }).join('');
+    });
+    if (noCat.length > 0) {
+        html += `<div class="task-group">
+            <div class="task-group-header">
+                Uncategorized
+                <span class="task-group-count">${noCat.length}</span>
+            </div>
+            <div class="task-list">
+                ${noCat.map(taskCardHtml).join('')}
+            </div>
+        </div>`;
+    }
+    list.innerHTML = html;
 }
 
 function updateStats() {
@@ -1586,6 +1744,7 @@ function openAddTask() {
     document.getElementById('task-priority').value = 'medium';
     document.getElementById('task-status').value   = 'todo';
     document.getElementById('task-do-date').value  = '';
+    document.getElementById('task-category').value = '';
     document.getElementById('task-name').classList.remove('error');
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
@@ -1601,6 +1760,7 @@ function openEditTask(id) {
     document.getElementById('task-priority').value = t.priority;
     document.getElementById('task-status').value   = t.status;
     document.getElementById('task-do-date').value  = t.doDate || '';
+    document.getElementById('task-category').value = t.category || '';
     document.getElementById('task-name').classList.remove('error');
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
@@ -1617,6 +1777,7 @@ function saveTask() {
         priority:    document.getElementById('task-priority').value,
         status:      document.getElementById('task-status').value,
         doDate:      document.getElementById('task-do-date').value || null,
+        category:    document.getElementById('task-category').value || null,
     };
     state.editingTaskId ? updateTask(state.editingTaskId, data) : createTask(data);
     closeModal('task-modal');
@@ -2000,6 +2161,7 @@ function kanbanCardHtml(task) {
     const isRunning = state.activeTimer?.taskId === task.id;
     const total     = taskTotal(task);
     const isDone    = task.status === 'completed';
+    const cat       = task.category ? state.categories.find(c => c.id === task.category) : null;
     return `
     <div class="kanban-card priority-${task.priority} status-${task.status}${isRunning ? ' running' : ''}"
          draggable="true" data-task-id="${task.id}"
@@ -2010,6 +2172,7 @@ function kanbanCardHtml(task) {
         <div class="kanban-card-meta">
             <span class="badge badge-${task.priority}">${task.priority}</span>
             <span class="badge badge-${task.status}">${task.status.replace('-',' ')}</span>
+            ${cat ? `<span class="cat-badge" style="background:${cat.color};font-size:9px;padding:1px 6px">${esc(cat.name)}</span>` : ''}
             ${total > 0 ? `<span class="kanban-card-time">${fmtSecs(total)}</span>` : ''}
         </div>
         <div class="kanban-card-actions">
@@ -2139,6 +2302,132 @@ function shiftTaskDate(taskId, days) {
     renderBoard();
 }
 
+// ── Categories ────────────────────────────────
+function addCategory(name, color) {
+    if (!currentUser || !categoriesRef) return;
+    const id  = uid();
+    const cat = { id, name, color, createdAt: Date.now() };
+    categoriesRef.child(id).set(cat)
+        .catch(err => console.error('Add category error:', err.message));
+    // Firebase listener will update state.categories and call updateCategorySelects() + render()
+}
+
+function deleteCategory(id) {
+    if (!currentUser || !categoriesRef) return;
+    categoriesRef.child(id).remove()
+        .catch(err => console.error('Delete category error:', err.message));
+    // Clear this category from any tasks that use it
+    let changed = false;
+    state.tasks.forEach(t => { if (t.category === id) { t.category = null; changed = true; } });
+    if (changed) save();
+    // Reset filter if it was pointing at the deleted category
+    if (state.categoryFilter === id) {
+        state.categoryFilter = 'all';
+        const sel = document.getElementById('cat-filter');
+        if (sel) sel.value = 'all';
+    }
+    render();
+}
+
+function openCategoryManager() {
+    renderCategoryManager();
+    openModal('cat-modal');
+}
+
+function renderCategoryManager() {
+    const body = document.getElementById('cat-modal-body');
+    if (!body) return;
+
+    const existingHtml = state.categories.length === 0
+        ? '<p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No categories yet.</p>'
+        : state.categories.map(c => `
+            <div class="cat-item">
+                <span class="cat-dot" style="width:14px;height:14px;background:${c.color}"></span>
+                <span style="flex:1;font-size:14px">${esc(c.name)}</span>
+                <button class="icon-btn danger" onclick="deleteCategory('${c.id}');renderCategoryManager()" title="Delete">&#x2715;</button>
+            </div>`).join('');
+
+    const colorGrid = CAT_COLORS.map((color, i) => `
+        <div class="cat-color-swatch${i === 0 ? ' selected' : ''}"
+             style="background:${color}"
+             data-color="${color}"
+             onclick="selectCatColor(this)"></div>`).join('');
+
+    body.innerHTML = `
+        <div id="cat-list" style="margin-bottom:16px">${existingHtml}</div>
+        <div style="border-top:1px solid var(--border);padding-top:16px">
+            <div class="section-label" style="margin-bottom:10px">New Category</div>
+            <div class="form-group">
+                <label for="new-cat-name">Name</label>
+                <input type="text" id="new-cat-name" placeholder="e.g. Work, Personal, Errands…" maxlength="40"
+                       onkeydown="if(event.key==='Enter')submitNewCategory()">
+            </div>
+            <div class="form-group">
+                <label>Color</label>
+                <div class="cat-color-grid" id="cat-color-grid">${colorGrid}</div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="submitNewCategory()">Add Category</button>
+        </div>`;
+}
+
+function selectCatColor(el) {
+    document.querySelectorAll('#cat-color-grid .cat-color-swatch')
+        .forEach(s => s.classList.remove('selected'));
+    el.classList.add('selected');
+}
+
+function submitNewCategory() {
+    const nameEl = document.getElementById('new-cat-name');
+    if (!nameEl) return;
+    const name = nameEl.value.trim();
+    if (!name) { nameEl.classList.add('error'); nameEl.focus(); return; }
+    nameEl.classList.remove('error');
+    const selSwatch = document.querySelector('#cat-color-grid .cat-color-swatch.selected');
+    const color = selSwatch ? selSwatch.dataset.color : CAT_COLORS[0];
+    addCategory(name, color);
+    nameEl.value = '';
+    // Re-render the manager (the Firebase listener will eventually update the list,
+    // but we can also call renderCategoryManager after a short delay for instant feedback)
+    setTimeout(renderCategoryManager, 300);
+}
+
+function setCategoryFilter(val) {
+    state.categoryFilter = val;
+    render();
+}
+
+function toggleGroupByCategory() {
+    state.groupByCategory = !state.groupByCategory;
+    const btn = document.getElementById('group-btn');
+    if (btn) btn.classList.toggle('active', state.groupByCategory);
+    render();
+}
+
+function updateCategorySelects() {
+    // Update the filter dropdown in the toolbar
+    const filterSel = document.getElementById('cat-filter');
+    if (filterSel) {
+        const prev = filterSel.value;
+        filterSel.innerHTML = '<option value="all">All Categories</option>' +
+            state.categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+        // Restore previous selection if still valid
+        if (state.categories.find(c => c.id === prev)) {
+            filterSel.value = prev;
+        } else {
+            filterSel.value = 'all';
+            state.categoryFilter = 'all';
+        }
+    }
+    // Update the task-modal category dropdown
+    const taskCatSel = document.getElementById('task-category');
+    if (taskCatSel) {
+        const prev = taskCatSel.value;
+        taskCatSel.innerHTML = '<option value="">— None —</option>' +
+            state.categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+        if (state.categories.find(c => c.id === prev)) taskCatSel.value = prev;
+    }
+}
+
 // ── Event Handlers ────────────────────────────
 function setFilter(f, btn) {
     state.filter = f;
@@ -2150,7 +2439,7 @@ function handleSearch(v) { state.search = v; render(); }
 function setSort(v)       { state.sort = v; render(); }
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); }
+    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); closeModal('cat-modal'); }
     if (e.key === 'Enter' && document.getElementById('task-modal').classList.contains('visible')) {
         if (document.activeElement.tagName !== 'TEXTAREA') saveTask();
     }
