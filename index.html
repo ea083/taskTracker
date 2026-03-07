@@ -578,6 +578,12 @@
         .time-entry-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
         .time-entry-note { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 2px; }
         .no-entries { color: var(--text-muted); font-size: 13px; text-align: center; padding: 16px 0; }
+        /* Editable time entries inside Edit Task modal */
+        .modal-time-entry { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+        .modal-te-row     { display: flex; align-items: flex-end; gap: 8px; }
+        .modal-te-field   { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+        .modal-te-lbl     { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+        .modal-te-dt, .modal-te-note { font-size: 13px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); width: 100%; box-sizing: border-box; }
 
         /* ── Sync indicator ── */
         .sync-dot {
@@ -1646,6 +1652,10 @@
                     <button type="button" class="subtask-add-btn" onclick="modalAddSubtask()">Add</button>
                 </div>
             </div>
+            <div class="form-group" id="modal-time-entries-section" style="display:none">
+                <label>Time Entries</label>
+                <div id="modal-time-entry-list"></div>
+            </div>
         </div>
         <div class="modal-footer">
             <button class="btn btn-ghost" onclick="closeModal('task-modal')">Cancel</button>
@@ -2456,7 +2466,49 @@ function openTaskDetail(taskId) {
     openModal('detail-modal');
 }
 
-let modalSubtasks = [];
+let modalSubtasks     = [];
+let modalTimeEntries  = [];
+
+function tsToDatetimeLocal(ts) {
+    const d = new Date(ts);
+    return d.getFullYear() + '-' +
+           String(d.getMonth()+1).padStart(2,'0') + '-' +
+           String(d.getDate()).padStart(2,'0') + 'T' +
+           String(d.getHours()).padStart(2,'0') + ':' +
+           String(d.getMinutes()).padStart(2,'0');
+}
+
+function renderModalTimeEntries() {
+    const list = document.getElementById('modal-time-entry-list');
+    if (!list) return;
+    if (!modalTimeEntries.length) {
+        list.innerHTML = '<div style="color:var(--text-muted);font-size:13px">No time entries.</div>';
+        return;
+    }
+    list.innerHTML = modalTimeEntries.map((e, i) => `
+        <div class="modal-time-entry">
+            <div class="modal-te-row">
+                <div class="modal-te-field">
+                    <span class="modal-te-lbl">Start</span>
+                    <input class="modal-te-dt" type="datetime-local" value="${tsToDatetimeLocal(e.startTime)}"
+                           onchange="modalTimeEntries[${i}].startTime=new Date(this.value).getTime()">
+                </div>
+                <div class="modal-te-field">
+                    <span class="modal-te-lbl">End</span>
+                    <input class="modal-te-dt" type="datetime-local" value="${tsToDatetimeLocal(e.endTime)}"
+                           onchange="modalTimeEntries[${i}].endTime=new Date(this.value).getTime()">
+                </div>
+                <button class="icon-btn danger" title="Delete entry" onclick="modalDeleteTimeEntry(${i})">✕</button>
+            </div>
+            <input class="modal-te-note" type="text" placeholder="Note (optional)" value="${esc(e.note || '')}"
+                   onchange="modalTimeEntries[${i}].note=this.value">
+        </div>`).join('');
+}
+
+function modalDeleteTimeEntry(i) {
+    modalTimeEntries.splice(i, 1);
+    renderModalTimeEntries();
+}
 
 function renderModalSubtasks() {
     const list = document.getElementById('modal-subtask-list');
@@ -2525,7 +2577,9 @@ function openAddTask() {
     document.getElementById('task-category').value = '';
     document.getElementById('task-name').classList.remove('error');
     modalSubtasks = [];
+    modalTimeEntries = [];
     renderModalSubtasks();
+    document.getElementById('modal-time-entries-section').style.display = 'none';
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
 }
@@ -2542,8 +2596,11 @@ function openEditTask(id) {
     document.getElementById('task-do-date').value  = t.doDate || '';
     document.getElementById('task-category').value = t.category || '';
     document.getElementById('task-name').classList.remove('error');
-    modalSubtasks = JSON.parse(JSON.stringify(t.subtasks || []));
+    modalSubtasks    = JSON.parse(JSON.stringify(t.subtasks    || []));
+    modalTimeEntries = JSON.parse(JSON.stringify(t.timeEntries || []));
     renderModalSubtasks();
+    document.getElementById('modal-time-entries-section').style.display = '';
+    renderModalTimeEntries();
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
 }
@@ -2566,6 +2623,14 @@ function saveTask() {
         category:    document.getElementById('task-category').value || null,
         subtasks:    modalSubtasks,
     };
+    if (state.editingTaskId) {
+        const entries = modalTimeEntries.map(e => ({
+            ...e,
+            duration: Math.max(0, Math.round((e.endTime - e.startTime) / 1000)),
+        }));
+        data.timeEntries  = entries;
+        data.totalSeconds = entries.reduce((s, e) => s + e.duration, 0);
+    }
     state.editingTaskId ? updateTask(state.editingTaskId, data) : createTask(data);
     closeModal('task-modal');
 }
