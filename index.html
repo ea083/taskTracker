@@ -1279,6 +1279,21 @@
     </div>
 </div>
 
+<!-- Task Detail Modal -->
+<div class="modal-overlay" id="detail-modal" onclick="overlayClick(event,'detail-modal')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="detail-modal-title"></h2>
+            <button class="close-btn" onclick="closeModal('detail-modal')">&times;</button>
+        </div>
+        <div class="modal-body" id="detail-modal-body"></div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('detail-modal')">Close</button>
+            <button class="btn btn-primary" id="detail-modal-edit-btn">Edit Task</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // Apply dark mode immediately to avoid flash on load
 if (localStorage.getItem('tt_dark') === '1') document.body.classList.add('dark');
@@ -1466,6 +1481,7 @@ function initDatabase() {
                 subtasks: Object.values(s.subtasks || {}), // sub-subtasks
             })),
         }));
+        incoming.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity));
         state.tasks = incoming;
 
         if (!dbInitialized) {
@@ -1528,7 +1544,7 @@ function save() {
 
     // Convert tasks array → Firebase object
     const obj = {};
-    state.tasks.forEach(task => {
+    state.tasks.forEach((task, index) => {
         const entries     = {};
         const subtasksObj = {};
         (task.timeEntries || []).forEach(e => { entries[e.id]      = e; });
@@ -1537,7 +1553,7 @@ function save() {
             (s.subtasks || []).forEach(ss => { subSubObj[ss.id] = ss; });
             subtasksObj[s.id] = { ...s, subtasks: subSubObj };
         });
-        obj[task.id] = { ...task, timeEntries: entries, subtasks: subtasksObj };
+        obj[task.id] = { ...task, timeEntries: entries, subtasks: subtasksObj, order: index };
     });
     tasksRef.set(obj).catch(err => console.error('Save error:', err.message));
 }
@@ -2611,7 +2627,7 @@ function kanbanCardHtml(task) {
          ondragstart="kDragStart(event)" ondragend="kDragEnd(event)"
          ondragover="kCardDragOver(event,'${task.id}')" ondragleave="kCardDragLeave(event)"
          ondrop="kCardDrop(event,'${task.id}')">
-        <div class="kanban-card-name">
+        <div class="kanban-card-name" onclick="openTaskDetail('${task.id}')">
             ${isRunning ? '<span class="dot" style="margin-right:5px;vertical-align:middle"></span>' : ''}${esc(task.name)}
         </div>
         <div class="kanban-card-meta">
@@ -2973,7 +2989,7 @@ function handleSearch(v) { state.search = v; render(); }
 function setSort(v)       { state.sort = v; render(); }
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); closeModal('cat-modal'); }
+    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); closeModal('cat-modal'); closeModal('detail-modal'); }
     if (e.key === 'Enter' && document.getElementById('task-modal').classList.contains('visible')) {
         if (document.activeElement.tagName !== 'TEXTAREA') saveTask();
     }
