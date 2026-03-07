@@ -952,6 +952,52 @@
         }
 
         /* ── Kanban Gap Indicator ── */
+        /* ── Kanban subtask tooltip ── */
+        #kanban-subtask-tooltip {
+            position: fixed;
+            z-index: 600;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            padding: 10px 13px;
+            min-width: 180px;
+            max-width: 260px;
+            pointer-events: none;
+            display: none;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .kst-header {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 6px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--border);
+        }
+        .kst-item {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            padding: 2px 0;
+            color: var(--text);
+            word-break: break-word;
+        }
+        .kst-item.done {
+            color: var(--text-muted);
+            text-decoration: line-through;
+        }
+        .kst-check {
+            font-size: 10px;
+            flex-shrink: 0;
+            color: var(--text-muted);
+        }
+        .kst-item.done .kst-check { color: var(--success); }
+        .kst-sub { padding-left: 15px; font-size: 11px; }
+
         .kanban-gap {
             display: flex;
             flex-direction: column;
@@ -2786,16 +2832,18 @@ function formatDoDateLabel(doDate, todayStr) {
 }
 
 function kanbanCardHtml(task) {
-    const isRunning = state.activeTimer?.taskId === task.id;
-    const total     = taskTotal(task);
-    const isDone    = task.status === 'completed';
-    const cat       = task.category ? state.categories.find(c => c.id === task.category) : null;
+    const isRunning   = state.activeTimer?.taskId === task.id;
+    const total       = taskTotal(task);
+    const isDone      = task.status === 'completed';
+    const cat         = task.category ? state.categories.find(c => c.id === task.category) : null;
+    const hasSubtasks = task.subtasks && task.subtasks.length > 0;
     return `
     <div class="kanban-card priority-${task.priority} status-${task.status}${isRunning ? ' running' : ''}"
          draggable="true" data-task-id="${task.id}"
          ondragstart="kDragStart(event)" ondragend="kDragEnd(event)"
          ondragover="kCardDragOver(event,'${task.id}')" ondragleave="kCardDragLeave(event)"
-         ondrop="kCardDrop(event,'${task.id}')">
+         ondrop="kCardDrop(event,'${task.id}')"
+         ${hasSubtasks ? `onmouseenter="showSubtaskTooltip(event,'${task.id}')" onmouseleave="hideSubtaskTooltip()"` : ''}>
         <div class="kanban-card-name" onclick="openTaskDetail('${task.id}')">
             ${isRunning ? '<span class="dot" style="margin-right:5px;vertical-align:middle"></span>' : ''}${esc(task.name)}
         </div>
@@ -2927,11 +2975,57 @@ function kanbanGapHtml(hiddenDays) {
     </div>`;
 }
 
+// ── Kanban Subtask Tooltip ─────────────────────
+function showSubtaskTooltip(e, taskId) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task || !task.subtasks || task.subtasks.length === 0) return;
+
+    const subtasks  = task.subtasks;
+    const topDone   = subtasks.filter(s => s.done).length;
+    const subsDone  = subtasks.reduce((n, s) => n + (s.subtasks || []).filter(ss => ss.done).length, 0);
+    const subsTotal = subtasks.reduce((n, s) => n + (s.subtasks || []).length, 0);
+    const totalDone = topDone + subsDone;
+    const total     = subtasks.length + subsTotal;
+
+    let html = `<div class="kst-header">Subtasks &nbsp;${totalDone} / ${total}</div>`;
+    subtasks.forEach(s => {
+        html += `<div class="kst-item${s.done ? ' done' : ''}">
+            <span class="kst-check">${s.done ? '✓' : '○'}</span><span>${esc(s.name)}</span>
+        </div>`;
+        (s.subtasks || []).forEach(ss => {
+            html += `<div class="kst-item kst-sub${ss.done ? ' done' : ''}">
+                <span class="kst-check">${ss.done ? '✓' : '○'}</span><span>${esc(ss.name)}</span>
+            </div>`;
+        });
+    });
+
+    const tip = document.getElementById('kanban-subtask-tooltip');
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+
+    const card = e.currentTarget.getBoundingClientRect();
+    const tw   = tip.offsetWidth  || 220;
+    const th   = tip.offsetHeight || 80;
+    const vw   = window.innerWidth;
+    const vh   = window.innerHeight;
+
+    const left = (card.right + tw + 8 <= vw) ? card.right + 8 : card.left - tw - 8;
+    const top  = Math.min(card.top, vh - th - 8);
+    tip.style.left = Math.max(8, left) + 'px';
+    tip.style.top  = Math.max(8, top)  + 'px';
+}
+
+function hideSubtaskTooltip() {
+    const tip = document.getElementById('kanban-subtask-tooltip');
+    if (tip) tip.style.display = 'none';
+}
+
 // ── Kanban Drag & Drop ─────────────────────────
 function kDragStart(e) {
     dragTaskId = e.currentTarget.dataset.taskId;
     e.currentTarget.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
+    hideSubtaskTooltip();
 }
 
 function kDragEnd(e) {
@@ -3364,5 +3458,8 @@ document.addEventListener('keydown', e => {
 // ── Init ──────────────────────────────────────
 document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
 </script>
+
+<!-- Kanban subtask hover tooltip (shared, fixed-position) -->
+<div id="kanban-subtask-tooltip" aria-hidden="true"></div>
 </body>
 </html>
