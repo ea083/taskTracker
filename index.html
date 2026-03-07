@@ -1204,20 +1204,36 @@
             <div class="toolbar">
                 <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
                 <input type="text" class="search-box" id="search-input" placeholder="Search tasks..." oninput="handleSearch(this.value)">
-                <div class="filter-group">
-                    <button class="btn btn-ghost active" onclick="setFilter('all', this)">All</button>
-                    <button class="btn btn-ghost" onclick="setFilter('todo', this)">To Do</button>
-                    <button class="btn btn-ghost" onclick="setFilter('in-progress', this)">In Progress</button>
-                    <button class="btn btn-ghost" onclick="setFilter('completed', this)">Completed</button>
+                <!-- Status filter dropdown -->
+                <div class="board-filter-wrapper">
+                    <button class="btn btn-ghost" id="list-status-filter-btn" onclick="toggleBoardFilterDropdown('list-status-dropdown')">Status &#9662;</button>
+                    <div class="board-filter-dropdown" id="list-status-dropdown">
+                        <label class="board-filter-item">
+                            <input type="checkbox" id="lsf-todo" checked onchange="toggleListStatusFilter('todo', this.checked)">
+                            To Do
+                        </label>
+                        <label class="board-filter-item">
+                            <input type="checkbox" id="lsf-in-progress" checked onchange="toggleListStatusFilter('in-progress', this.checked)">
+                            In Progress
+                        </label>
+                        <label class="board-filter-item">
+                            <input type="checkbox" id="lsf-completed" checked onchange="toggleListStatusFilter('completed', this.checked)">
+                            Completed
+                        </label>
+                    </div>
+                </div>
+                <!-- Category filter dropdown -->
+                <div class="board-filter-wrapper">
+                    <button class="btn btn-ghost" id="list-cat-filter-btn" onclick="toggleBoardFilterDropdown('list-cat-dropdown')">Category &#9662;</button>
+                    <div class="board-filter-dropdown" id="list-cat-dropdown">
+                        <!-- populated dynamically by renderListCategoryDropdown() -->
+                    </div>
                 </div>
                 <select class="sort-select" onchange="setSort(this.value)">
                     <option value="created">Sort: Newest</option>
                     <option value="priority">Sort: Priority</option>
                     <option value="name">Sort: Name</option>
                     <option value="time">Sort: Time</option>
-                </select>
-                <select class="sort-select" id="cat-filter" onchange="setCategoryFilter(this.value)">
-                    <option value="all">All Categories</option>
                 </select>
                 <button class="btn btn-ghost" id="group-btn" onclick="toggleGroupByCategory()" title="Group tasks by category">&#x229E; Group</button>
                 <button class="btn btn-ghost" onclick="openCategoryManager()" title="Manage categories">&#x1F3F7; Categories</button>
@@ -1410,14 +1426,14 @@ const FIREBASE_CONFIG = {
 const state = {
     tasks:                [],
     activeTimer:          null, // { taskId, startTime, entryId, intervalId }
-    filter:               'all',
     search:               '',
     sort:                 'created',
     editingTaskId:        null,
     view:                 'list', // 'list' | 'board'
     categories:           [],    // [{ id, name, color, createdAt }]
-    categoryFilter:       'all', // 'all' | categoryId
     groupByCategory:      false,
+    listHiddenStatuses:   new Set(), // statuses hidden in list view
+    listHiddenCategories: new Set(), // category ids hidden in list view ('' = uncategorized)
     boardHiddenStatuses:  new Set(), // statuses hidden in board view
     boardHiddenCategories: new Set(), // category ids hidden in board view ('' = uncategorized)
     collapsedGroups:      new Set(), // category group ids collapsed in list view ('' = uncategorized)
@@ -1557,7 +1573,8 @@ function showLogin() {
     document.getElementById('app').style.display = 'none';
     state.tasks = [];
     state.categories = [];
-    state.categoryFilter = 'all';
+    state.listHiddenStatuses.clear();
+    state.listHiddenCategories.clear();
     state.groupByCategory = false;
     if (state.activeTimer) { clearInterval(state.activeTimer.intervalId); state.activeTimer = null; }
     localStorage.removeItem('tt_timer');
@@ -1874,8 +1891,8 @@ const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 
 function filtered() {
     let tasks = [...state.tasks];
-    if (state.filter !== 'all')         tasks = tasks.filter(t => t.status === state.filter);
-    if (state.categoryFilter !== 'all') tasks = tasks.filter(t => t.category === state.categoryFilter);
+    if (state.listHiddenStatuses.size > 0)    tasks = tasks.filter(t => !state.listHiddenStatuses.has(t.status));
+    if (state.listHiddenCategories.size > 0)  tasks = tasks.filter(t => !state.listHiddenCategories.has(t.category || ''));
     if (state.search) {
         const q = state.search.toLowerCase();
         tasks = tasks.filter(t => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q));
@@ -1985,7 +2002,7 @@ function renderTasks() {
     const tasks = filtered();
 
     if (!tasks.length) {
-        const isFiltered = state.filter !== 'all' || state.search || state.categoryFilter !== 'all';
+        const isFiltered = state.listHiddenStatuses.size > 0 || state.search || state.listHiddenCategories.size > 0;
         list.innerHTML = `<div class="empty-state">
             <div class="es-icon">${isFiltered ? '&#x1F50D;' : '&#x1F4CB;'}</div>
             <div class="es-title">${isFiltered ? 'No matching tasks' : 'No tasks yet'}</div>
@@ -3028,12 +3045,9 @@ function deleteCategory(id) {
     let changed = false;
     state.tasks.forEach(t => { if (t.category === id) { t.category = null; changed = true; } });
     if (changed) save();
-    // Reset filter if it was pointing at the deleted category
-    if (state.categoryFilter === id) {
-        state.categoryFilter = 'all';
-        const sel = document.getElementById('cat-filter');
-        if (sel) sel.value = 'all';
-    }
+    // Remove deleted category from list/board filter sets so it doesn't stay hidden
+    state.listHiddenCategories.delete(id);
+    state.boardHiddenCategories.delete(id);
     render();
 }
 
@@ -3099,11 +3113,6 @@ function submitNewCategory() {
     setTimeout(renderCategoryManager, 300);
 }
 
-function setCategoryFilter(val) {
-    state.categoryFilter = val;
-    render();
-}
-
 function toggleGroupByCategory() {
     state.groupByCategory = !state.groupByCategory;
     localStorage.setItem('tt_group', state.groupByCategory ? '1' : '0');
@@ -3113,20 +3122,6 @@ function toggleGroupByCategory() {
 }
 
 function updateCategorySelects() {
-    // Update the filter dropdown in the toolbar
-    const filterSel = document.getElementById('cat-filter');
-    if (filterSel) {
-        const prev = filterSel.value;
-        filterSel.innerHTML = '<option value="all">All Categories</option>' +
-            state.categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
-        // Restore previous selection if still valid
-        if (state.categories.find(c => c.id === prev)) {
-            filterSel.value = prev;
-        } else {
-            filterSel.value = 'all';
-            state.categoryFilter = 'all';
-        }
-    }
     // Update the task-modal category dropdown
     const taskCatSel = document.getElementById('task-category');
     if (taskCatSel) {
@@ -3135,7 +3130,8 @@ function updateCategorySelects() {
             state.categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
         if (state.categories.find(c => c.id === prev)) taskCatSel.value = prev;
     }
-    // Update the board view category filter dropdown
+    // Update list and board view category filter dropdowns
+    renderListCategoryDropdown();
     renderBoardCategoryDropdown();
 }
 
@@ -3209,6 +3205,62 @@ function groupDrop(e, targetCatId) {
     state.categories = cats;
     dragGroupId = null;
     renderTasks();
+}
+
+// ── List View Filters ─────────────────────────
+function toggleListStatusFilter(status, checked) {
+    if (checked) {
+        state.listHiddenStatuses.delete(status);
+    } else {
+        state.listHiddenStatuses.add(status);
+    }
+    updateBoardFilterBtnState('list-status-filter-btn', state.listHiddenStatuses.size > 0);
+    renderTasks();
+}
+
+function toggleListCategoryFilter(catId, checked) {
+    if (checked) {
+        state.listHiddenCategories.delete(catId);
+    } else {
+        state.listHiddenCategories.add(catId);
+    }
+    updateBoardFilterBtnState('list-cat-filter-btn', state.listHiddenCategories.size > 0);
+    renderTasks();
+}
+
+function renderListCategoryDropdown() {
+    const dropdown = document.getElementById('list-cat-dropdown');
+    if (!dropdown) return;
+
+    // Drop stale IDs from hidden set
+    const validIds = new Set(state.categories.map(c => c.id));
+    validIds.add('');
+    state.listHiddenCategories.forEach(id => {
+        if (!validIds.has(id)) state.listHiddenCategories.delete(id);
+    });
+
+    const items = [];
+    const noneChecked = !state.listHiddenCategories.has('');
+    items.push(`<label class="board-filter-item">
+        <input type="checkbox" ${noneChecked ? 'checked' : ''} onchange="toggleListCategoryFilter('', this.checked)">
+        <span style="color:var(--text-muted);font-style:italic">Uncategorized</span>
+    </label>`);
+
+    state.categories.forEach(c => {
+        const isChecked = !state.listHiddenCategories.has(c.id);
+        items.push(`<label class="board-filter-item">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleListCategoryFilter('${c.id}', this.checked)">
+            <span class="cat-dot-sm" style="background:${c.color}"></span>
+            ${esc(c.name)}
+        </label>`);
+    });
+
+    if (items.length === 1) {
+        items.push(`<div style="padding:4px 8px;font-size:12px;color:var(--text-muted)">No categories yet</div>`);
+    }
+
+    dropdown.innerHTML = items.join('');
+    updateBoardFilterBtnState('list-cat-filter-btn', state.listHiddenCategories.size > 0);
 }
 
 // ── Board View Filters ────────────────────────
@@ -3298,12 +3350,6 @@ function renderBoardCategoryDropdown() {
 }
 
 // ── Event Handlers ────────────────────────────
-function setFilter(f, btn) {
-    state.filter = f;
-    document.querySelectorAll('.filter-group .btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    render();
-}
 function handleSearch(v) { state.search = v; render(); }
 function setSort(v)       { state.sort = v; render(); }
 
