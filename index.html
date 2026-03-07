@@ -702,6 +702,17 @@
         }
         .task-group.collapsed .task-group-chevron { transform: rotate(-90deg); }
         .task-group.collapsed .task-group-body { display: none; }
+        .task-group.drag-above { box-shadow: 0 -2px 0 var(--primary); }
+        .task-group.drag-below { box-shadow: 0 2px 0 var(--primary); }
+        .group-drag-handle {
+            cursor: grab;
+            color: var(--text-muted);
+            opacity: 0.4;
+            font-size: 13px;
+            line-height: 1;
+            margin-right: -2px;
+        }
+        .task-group-header:hover .group-drag-handle { opacity: 0.8; }
         .active-section {
             margin-bottom: 18px;
             padding-bottom: 18px;
@@ -1533,6 +1544,12 @@ function showApp(user) {
     if (user.photoURL) { av.src = user.photoURL; av.style.display = 'block'; }
     // Restore the last active view (board renders again with real data once Firebase loads)
     setView(localStorage.getItem('tt_view') || 'list');
+    // Restore group-by-category toggle
+    if (localStorage.getItem('tt_group') === '1') {
+        state.groupByCategory = true;
+        const btn = document.getElementById('group-btn');
+        if (btn) btn.classList.add('active');
+    }
 }
 
 function showLogin() {
@@ -1585,7 +1602,11 @@ function initDatabase() {
 
     offCatListener = categoriesRef.on('value', snapshot => {
         const raw = snapshot.val() || {};
-        state.categories = Object.values(raw).sort((a, b) => a.createdAt - b.createdAt);
+        state.categories = Object.values(raw).sort((a, b) => {
+            const ao = a.order !== undefined ? a.order : a.createdAt;
+            const bo = b.order !== undefined ? b.order : b.createdAt;
+            return ao - bo;
+        });
         updateCategorySelects();
         if (dbInitialized) render();
     }, err => { console.error('Category listener error:', err.message); });
@@ -2011,8 +2032,16 @@ function renderTasks() {
         const catTasks = groups.get(cat.id);
         if (!catTasks || catTasks.length === 0) return;
         const collapsed = state.collapsedGroups.has(cat.id);
-        html += `<div class="task-group${collapsed ? ' collapsed' : ''}">
-            <div class="task-group-header" onclick="toggleGroupCollapse('${cat.id}')">
+        html += `<div class="task-group${collapsed ? ' collapsed' : ''}"
+                      ondragover="groupDragOver(event,'${cat.id}')"
+                      ondragleave="groupDragLeave(event)"
+                      ondrop="groupDrop(event,'${cat.id}')">
+            <div class="task-group-header"
+                 draggable="true"
+                 ondragstart="groupDragStart(event,'${cat.id}')"
+                 ondragend="groupDragEnd(event)"
+                 onclick="toggleGroupCollapse('${cat.id}')">
+                <span class="group-drag-handle">&#8942;</span>
                 <span class="cat-dot" style="width:10px;height:10px;background:${cat.color}"></span>
                 ${esc(cat.name)}
                 <span class="task-group-count">${catTasks.length}</span>
@@ -2724,6 +2753,7 @@ function setView(v) {
 // ── Kanban Board ───────────────────────────────
 let dragTaskId   = null;
 let dragOverCard = null; // { taskId, position: 'before'|'after' }
+let dragGroupId  = null; // category id being dragged for group reorder
 
 function formatDoDateLabel(doDate, todayStr) {
     if (!doDate) return 'Unscheduled';
@@ -2984,7 +3014,7 @@ function shiftTaskDate(taskId, days) {
 function addCategory(name, color) {
     if (!currentUser || !categoriesRef) return;
     const id  = uid();
-    const cat = { id, name, color, createdAt: Date.now() };
+    const cat = { id, name, color, createdAt: Date.now(), order: state.categories.length };
     categoriesRef.child(id).set(cat)
         .catch(err => console.error('Add category error:', err.message));
     // Firebase listener will update state.categories and call updateCategorySelects() + render()
@@ -3076,6 +3106,7 @@ function setCategoryFilter(val) {
 
 function toggleGroupByCategory() {
     state.groupByCategory = !state.groupByCategory;
+    localStorage.setItem('tt_group', state.groupByCategory ? '1' : '0');
     const btn = document.getElementById('group-btn');
     if (btn) btn.classList.toggle('active', state.groupByCategory);
     render();
@@ -3115,6 +3146,68 @@ function toggleGroupCollapse(groupId) {
     } else {
         state.collapsedGroups.add(groupId);
     }
+    renderTasks();
+}
+
+// ── Category Group Drag-to-Reorder ───────────
+function groupDragStart(e, catId) {
+    dragGroupId = catId;
+    e.dataTransfer.effectAllowed = 'move';
+    // Slight delay so the drag image renders before we style the element
+    setTimeout(() => e.target.closest('.task-group').classList.add('dragging'), 0);
+}
+
+function groupDragEnd(e) {
+    dragGroupId = null;
+    document.querySelectorAll('.task-group').forEach(g =>
+        g.classList.remove('dragging', 'drag-above', 'drag-below'));
+}
+
+function groupDragOver(e, catId) {
+    if (!dragGroupId || dragGroupId === catId) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const before = e.clientY < rect.top + rect.height / 2;
+    document.querySelectorAll('.task-group').forEach(g =>
+        g.classList.remove('drag-above', 'drag-below'));
+    e.currentTarget.classList.add(before ? 'drag-above' : 'drag-below');
+}
+
+function groupDragLeave(e) {
+    // Only clear if leaving the group entirely (not entering a child)
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+        e.currentTarget.classList.remove('drag-above', 'drag-below');
+    }
+}
+
+function groupDrop(e, targetCatId) {
+    e.preventDefault();
+    document.querySelectorAll('.task-group').forEach(g =>
+        g.classList.remove('drag-above', 'drag-below', 'dragging'));
+    if (!dragGroupId || dragGroupId === targetCatId) { dragGroupId = null; return; }
+
+    const cats = [...state.categories];
+    const fromIdx = cats.findIndex(c => c.id === dragGroupId);
+    const toIdx   = cats.findIndex(c => c.id === targetCatId);
+    if (fromIdx === -1 || toIdx === -1) { dragGroupId = null; return; }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const insertBefore = e.clientY < rect.top + rect.height / 2;
+
+    const [moved] = cats.splice(fromIdx, 1);
+    const newToIdx = cats.findIndex(c => c.id === targetCatId);
+    cats.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
+
+    // Persist new order to Firebase
+    if (currentUser && categoriesRef) {
+        const updates = {};
+        cats.forEach((cat, i) => { updates[cat.id + '/order'] = i; });
+        categoriesRef.update(updates).catch(err => console.error('Reorder error:', err));
+    }
+
+    // Optimistic local update
+    state.categories = cats;
+    dragGroupId = null;
     renderTasks();
 }
 
