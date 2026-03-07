@@ -979,6 +979,9 @@
         }
         .cal-entry:hover { box-shadow: var(--shadow-md); z-index: 3; }
         .cal-entry.cal-dragging { z-index: 10; box-shadow: var(--shadow-lg); opacity: 0.85; }
+        /* Dim all entries when one is hovered; the hovered one is excluded via JS class */
+        .cal-columns.has-hover .cal-entry { opacity: 0.3; transition: opacity 0.15s; }
+        .cal-columns.has-hover .cal-entry.cal-hovered { opacity: 1; }
         .cal-entry-handle-top,
         .cal-entry-handle-bot {
             position: absolute;
@@ -3063,7 +3066,7 @@ function toggleDarkMode() {
 })();
 
 // ── Calendar View ──────────────────────────────
-const CAL_ZOOM_LEVELS = [32, 48, 64, 80, 100, 120]; // pixels per hour options
+const CAL_ZOOM_LEVELS = [32, 48, 64, 80, 100, 120, 150, 180, 240, 320]; // pixels per hour options
 let   calZoomIdx      = 2;  // default: 64px/hr
 const CAL_SNAP_MINS   = 5;  // drag snaps to 5-minute intervals
 
@@ -3241,11 +3244,24 @@ function calTooltipShow(e, el) {
     const top = Math.max(8, Math.min(rect.top, window.innerHeight - tipH - 8));
     tip.style.left = left + 'px';
     tip.style.top  = top  + 'px';
+
+    // Dim all other entries
+    const colsEl = document.getElementById('cal-columns');
+    if (colsEl) {
+        colsEl.classList.add('has-hover');
+        el.classList.add('cal-hovered');
+    }
 }
 
 function calTooltipHide() {
     const tip = document.getElementById('cal-tooltip');
     if (tip) tip.classList.remove('visible');
+
+    const colsEl = document.getElementById('cal-columns');
+    if (colsEl) {
+        colsEl.classList.remove('has-hover');
+        colsEl.querySelectorAll('.cal-hovered').forEach(el => el.classList.remove('cal-hovered'));
+    }
 }
 
 function calEntryClick(e, taskId) {
