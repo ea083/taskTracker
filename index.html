@@ -1006,7 +1006,10 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.15s;
         }
+        .cal-entry:hover .cal-entry-name { opacity: 1; }
         .cal-entry-time {
             font-size: 10px;
             color: var(--text-muted);
@@ -1014,6 +1017,21 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .cal-entry:hover .cal-entry-time { opacity: 1; }
+        .cal-zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: auto;
+        }
+        .cal-zoom-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            min-width: 36px;
+            text-align: center;
         }
 
         .kanban-scroll {
@@ -1540,6 +1558,11 @@
             <span class="cal-week-label" id="cal-week-label"></span>
             <button class="btn btn-ghost btn-sm" onclick="calNavWeek(1)">Next &#8594;</button>
             <button class="btn btn-ghost btn-sm" onclick="calNavWeek(-state.calendarWeekOffset)">Today</button>
+            <div class="cal-zoom-controls">
+                <button class="btn btn-ghost btn-sm" onclick="calZoom(-1)" title="Zoom out">&#x2212;</button>
+                <span class="cal-zoom-label" id="cal-zoom-label"></span>
+                <button class="btn btn-ghost btn-sm" onclick="calZoom(1)" title="Zoom in">&#x2B;</button>
+            </div>
         </div>
         <div class="cal-outer">
             <div class="cal-head-row" id="cal-head-row">
@@ -3032,8 +3055,22 @@ function toggleDarkMode() {
 })();
 
 // ── Calendar View ──────────────────────────────
-const CAL_HOUR_PX   = 64;   // pixels per hour
-const CAL_SNAP_MINS = 5;    // drag snaps to 5-minute intervals
+const CAL_ZOOM_LEVELS = [32, 48, 64, 80, 100, 120]; // pixels per hour options
+let   calZoomIdx      = 2;  // default: 64px/hr
+const CAL_SNAP_MINS   = 5;  // drag snaps to 5-minute intervals
+
+function calHourPx() { return CAL_ZOOM_LEVELS[calZoomIdx]; }
+
+function calZoom(dir) {
+    const next = calZoomIdx + dir;
+    if (next < 0 || next >= CAL_ZOOM_LEVELS.length) return;
+    // Remember scroll position as a fraction of total height so the view stays centred
+    const scroll   = document.getElementById('cal-body-scroll');
+    const fraction = scroll ? scroll.scrollTop / (calHourPx() * 24) : 8 / 24;
+    calZoomIdx = next;
+    renderCalendar();
+    if (scroll) scroll.scrollTop = fraction * calHourPx() * 24;
+}
 
 let calDrag     = null;  // active resize drag state
 let calDragged  = false; // true if pointer actually moved during drag
@@ -3070,6 +3107,10 @@ function renderCalendar() {
             : `${fmt(days[0])}, ${days[0].getFullYear()} – ${fmt(days[6])}, ${days[6].getFullYear()}`;
     }
 
+    // Zoom label + button state
+    const zoomLabelEl = document.getElementById('cal-zoom-label');
+    if (zoomLabelEl) zoomLabelEl.textContent = calHourPx() + 'px';
+
     // Build dateStr → [{task, entry}] map for this week
     const dayMap = new Map();
     days.forEach(d => dayMap.set(d.toISOString().slice(0, 10), []));
@@ -3102,10 +3143,10 @@ function renderCalendar() {
         let html = '';
         for (let h = 0; h <= 24; h++) {
             const label = h === 0 ? '' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`;
-            html += `<div class="cal-hour-label" style="top:${h * CAL_HOUR_PX}px">${label}</div>`;
+            html += `<div class="cal-hour-label" style="top:${h * calHourPx()}px">${label}</div>`;
         }
         axisEl.innerHTML = html;
-        axisEl.style.height = (24 * CAL_HOUR_PX) + 'px';
+        axisEl.style.height = (24 * calHourPx()) + 'px';
     }
 
     // ── Day columns ──
@@ -3122,14 +3163,14 @@ function renderCalendar() {
 
         // Hour and half-hour lines
         for (let h = 0; h < 24; h++) {
-            inner += `<div class="cal-hour-line" style="top:${h * CAL_HOUR_PX}px"></div>`;
-            inner += `<div class="cal-half-line" style="top:${h * CAL_HOUR_PX + CAL_HOUR_PX / 2}px"></div>`;
+            inner += `<div class="cal-hour-line" style="top:${h * calHourPx()}px"></div>`;
+            inner += `<div class="cal-half-line" style="top:${h * calHourPx() + calHourPx() / 2}px"></div>`;
         }
 
         // Current-time indicator
         if (isToday) {
             const now   = new Date();
-            const topPx = (now.getHours() + now.getMinutes() / 60) * CAL_HOUR_PX;
+            const topPx = (now.getHours() + now.getMinutes() / 60) * calHourPx();
             inner += `<div class="cal-now-line" style="top:${topPx.toFixed(1)}px"></div>`;
         }
 
@@ -3140,8 +3181,8 @@ function renderCalendar() {
             const clippedEnd = Math.min(entry.endTime, dayEndMs);
             const durMs     = Math.max(5 * 60000, clippedEnd - entry.startTime); // min 5 min display
 
-            const topPx    = (startDate.getHours() + startDate.getMinutes() / 60 + startDate.getSeconds() / 3600) * CAL_HOUR_PX;
-            const heightPx = Math.max(18, (durMs / 3600000) * CAL_HOUR_PX);
+            const topPx    = (startDate.getHours() + startDate.getMinutes() / 60 + startDate.getSeconds() / 3600) * calHourPx();
+            const heightPx = Math.max(18, (durMs / 3600000) * calHourPx());
 
             const cat    = task.category ? state.categories.find(c => c.id === task.category) : null;
             const color  = cat ? cat.color : '#4f46e5';
@@ -3165,10 +3206,10 @@ function renderCalendar() {
             </div>`;
         });
 
-        colsHtml += `<div class="cal-day-col${isToday ? ' is-today' : ''}" style="height:${24 * CAL_HOUR_PX}px">${inner}</div>`;
+        colsHtml += `<div class="cal-day-col${isToday ? ' is-today' : ''}" style="height:${24 * calHourPx()}px">${inner}</div>`;
     });
     colsEl.innerHTML = colsHtml;
-    colsEl.style.height = (24 * CAL_HOUR_PX) + 'px';
+    colsEl.style.height = (24 * calHourPx()) + 'px';
 }
 
 function calEntryClick(e, taskId) {
@@ -3199,7 +3240,7 @@ function calResizeMove(e) {
     const entry = task?.timeEntries.find(en => en.id === calDrag.entryId);
     if (!entry) return;
 
-    const deltaMs = ((e.clientY - calDrag.startY) / CAL_HOUR_PX) * 3600000;
+    const deltaMs = ((e.clientY - calDrag.startY) / calHourPx()) * 3600000;
 
     if (calDrag.type === 'start') {
         const raw      = calDrag.origStart + deltaMs;
@@ -3253,7 +3294,7 @@ function setView(v) {
         renderCalendar();
         // Scroll to 8am on first show
         const scroll = document.getElementById('cal-body-scroll');
-        if (scroll) scroll.scrollTop = 8 * CAL_HOUR_PX;
+        if (scroll) scroll.scrollTop = 8 * calHourPx();
     }
 }
 
