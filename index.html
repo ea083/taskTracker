@@ -2015,15 +2015,47 @@ let modalSubtasks = [];
 function renderModalSubtasks() {
     const list = document.getElementById('modal-subtask-list');
     if (!list) return;
-    list.innerHTML = modalSubtasks.map((s, i) => `
-        <div class="subtask-item" style="margin-bottom:4px">
-            <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
-                   onchange="modalSubtasks[${i}].done=this.checked">
-            <input type="text" class="modal-subtask-name-input" value="${esc(s.name)}"
-                   maxlength="120" onchange="modalSubtasks[${i}].name=this.value.trim()||modalSubtasks[${i}].name">
-            <button type="button" class="icon-btn danger" style="width:22px;height:22px;font-size:11px;flex-shrink:0"
-                    onclick="modalSubtasks.splice(${i},1);renderModalSubtasks()">&#x2715;</button>
-        </div>`).join('');
+    list.innerHTML = modalSubtasks.map((s, i) => {
+        const subSubs = s.subtasks || [];
+        const subSubRows = subSubs.map((ss, j) => `
+            <div class="subtask-item detail-subsub" style="margin-bottom:4px">
+                <input type="checkbox" class="subtask-checkbox" ${ss.done ? 'checked' : ''}
+                       onchange="modalSubtasks[${i}].subtasks[${j}].done=this.checked">
+                <input type="text" class="modal-subtask-name-input" value="${esc(ss.name)}"
+                       maxlength="120" oninput="modalSubtasks[${i}].subtasks[${j}].name=this.value">
+                <button type="button" class="icon-btn danger" style="width:22px;height:22px;font-size:11px;flex-shrink:0"
+                        onclick="modalSubtasks[${i}].subtasks.splice(${j},1);renderModalSubtasks()">&#x2715;</button>
+            </div>`).join('');
+        return `
+            <div class="subtask-item" style="margin-bottom:4px">
+                <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
+                       onchange="modalSubtasks[${i}].done=this.checked">
+                <input type="text" class="modal-subtask-name-input" value="${esc(s.name)}"
+                       maxlength="120" oninput="modalSubtasks[${i}].name=this.value">
+                <button type="button" class="icon-btn danger" style="width:22px;height:22px;font-size:11px;flex-shrink:0"
+                        onclick="modalSubtasks.splice(${i},1);renderModalSubtasks()">&#x2715;</button>
+            </div>
+            ${subSubRows}
+            <div class="detail-subsub" style="display:flex;gap:6px;margin-bottom:6px">
+                <input type="text" class="subtask-input" id="modal-subsub-input-${i}"
+                       placeholder="Add sub-subtask…" maxlength="120"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();modalAddSubSubtask(${i})}">
+                <button type="button" class="subtask-add-btn" style="font-size:11px;padding:3px 8px"
+                        onclick="modalAddSubSubtask(${i})">Add</button>
+            </div>`;
+    }).join('');
+}
+
+function modalAddSubSubtask(i) {
+    const input = document.getElementById(`modal-subsub-input-${i}`);
+    const name  = input?.value.trim();
+    if (!name) return;
+    if (!modalSubtasks[i].subtasks) modalSubtasks[i].subtasks = [];
+    modalSubtasks[i].subtasks.push({ id: uid(), name, done: false });
+    input.value = '';
+    renderModalSubtasks();
+    const refocused = document.getElementById(`modal-subsub-input-${i}`);
+    if (refocused) refocused.focus();
 }
 
 function modalAddSubtask() {
