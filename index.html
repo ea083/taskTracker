@@ -1612,6 +1612,22 @@ function showApp(user) {
         const btn = document.getElementById('group-btn');
         if (btn) btn.classList.add('active');
     }
+    // Restore board status filter
+    try {
+        const saved = JSON.parse(localStorage.getItem('tt_board_st') || '[]');
+        saved.forEach(s => state.boardHiddenStatuses.add(s));
+        ['todo', 'in-progress', 'completed'].forEach(s => {
+            const cb = document.getElementById('bsf-' + s);
+            if (cb) cb.checked = !state.boardHiddenStatuses.has(s);
+        });
+        updateBoardFilterBtnState('board-status-filter-btn', state.boardHiddenStatuses.size > 0);
+    } catch(e) {}
+    // Restore board category filter (checkboxes built dynamically, button state is enough here)
+    try {
+        const saved = JSON.parse(localStorage.getItem('tt_board_cat') || '[]');
+        saved.forEach(id => state.boardHiddenCategories.add(id));
+        updateBoardFilterBtnState('board-cat-filter-btn', state.boardHiddenCategories.size > 0);
+    } catch(e) {}
 }
 
 function showLogin() {
@@ -3380,6 +3396,7 @@ function toggleBoardStatusFilter(status, checked) {
     } else {
         state.boardHiddenStatuses.add(status);
     }
+    localStorage.setItem('tt_board_st',  JSON.stringify([...state.boardHiddenStatuses]));
     updateBoardFilterBtnState('board-status-filter-btn', state.boardHiddenStatuses.size > 0);
     renderBoard();
 }
@@ -3390,6 +3407,7 @@ function toggleBoardCategoryFilter(catId, checked) {
     } else {
         state.boardHiddenCategories.add(catId);
     }
+    localStorage.setItem('tt_board_cat', JSON.stringify([...state.boardHiddenCategories]));
     updateBoardFilterBtnState('board-cat-filter-btn', state.boardHiddenCategories.size > 0);
     renderBoard();
 }
