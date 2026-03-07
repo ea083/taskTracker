@@ -462,6 +462,25 @@
             transition: all 0.15s;
         }
         .close-btn:hover { color: var(--text); background: var(--bg); }
+        .kanban-card-name { cursor: pointer; }
+        .kanban-card-name:hover { color: var(--primary); }
+        .detail-description {
+            font-size: 14px;
+            color: var(--text);
+            white-space: pre-wrap;
+            margin: 0 0 18px;
+            line-height: 1.6;
+        }
+        .detail-empty { color: var(--text-muted); font-style: italic; }
+        .detail-subtask-heading {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            margin-bottom: 8px;
+        }
+        .detail-subsub { margin-left: 22px; padding-left: 10px; border-left: 2px solid var(--border); }
 
         /* ── Forms ── */
         .form-group { margin-bottom: 14px; }
@@ -1237,6 +1256,21 @@
     </div>
 </div>
 
+<!-- Task Detail Modal -->
+<div class="modal-overlay" id="detail-modal" onclick="overlayClick(event,'detail-modal')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="detail-modal-title"></h2>
+            <button class="close-btn" onclick="closeModal('detail-modal')">&times;</button>
+        </div>
+        <div class="modal-body" id="detail-modal-body"></div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('detail-modal')">Close</button>
+            <button class="btn btn-primary" id="detail-modal-edit-btn">Edit Task</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // Apply dark mode immediately to avoid flash on load
 if (localStorage.getItem('tt_dark') === '1') document.body.classList.add('dark');
@@ -1915,6 +1949,44 @@ function closeModal(id) {
 }
 function overlayClick(e, id) { if (e.target.id === id) closeModal(id); }
 
+function openTaskDetail(taskId) {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    document.getElementById('detail-modal-title').textContent = task.name;
+    document.getElementById('detail-modal-edit-btn').onclick = () => {
+        closeModal('detail-modal');
+        openEditTask(taskId);
+    };
+    const subtasks = task.subtasks || [];
+    const doneCount = subtasks.filter(s => s.done).length;
+    const subtaskRows = subtasks.map(s => {
+        const subSubs = s.subtasks || [];
+        const subSubRows = subSubs.map(ss => `
+            <div class="subtask-item detail-subsub">
+                <input type="checkbox" class="subtask-checkbox" ${ss.done ? 'checked' : ''}
+                       onchange="toggleSubSubtask('${task.id}','${s.id}','${ss.id}');openTaskDetail('${task.id}')">
+                <span class="subtask-name${ss.done ? ' done' : ''}">${esc(ss.name)}</span>
+            </div>`).join('');
+        return `
+            <div class="subtask-item">
+                <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
+                       onchange="toggleSubtask('${task.id}','${s.id}');openTaskDetail('${task.id}')">
+                <span class="subtask-name${s.done ? ' done' : ''}">${esc(s.name)}</span>
+            </div>${subSubRows}`;
+    }).join('');
+    const descHtml = task.description
+        ? `<p class="detail-description">${esc(task.description)}</p>`
+        : `<p class="detail-description detail-empty">No description.</p>`;
+    const subtasksHtml = subtasks.length === 0
+        ? `<p class="detail-empty" style="font-size:13px">No subtasks.</p>`
+        : subtaskRows;
+    document.getElementById('detail-modal-body').innerHTML = `
+        ${descHtml}
+        <div class="detail-subtask-heading">Subtasks${subtasks.length > 0 ? ` (${doneCount}/${subtasks.length})` : ''}</div>
+        <div>${subtasksHtml}</div>`;
+    openModal('detail-modal');
+}
+
 function openAddTask() {
     state.editingTaskId = null;
     document.getElementById('task-modal-title').textContent = 'New Task';
@@ -2497,7 +2569,7 @@ function kanbanCardHtml(task) {
          ondragstart="kDragStart(event)" ondragend="kDragEnd(event)"
          ondragover="kCardDragOver(event,'${task.id}')" ondragleave="kCardDragLeave(event)"
          ondrop="kCardDrop(event,'${task.id}')">
-        <div class="kanban-card-name">
+        <div class="kanban-card-name" onclick="openTaskDetail('${task.id}')">
             ${isRunning ? '<span class="dot" style="margin-right:5px;vertical-align:middle"></span>' : ''}${esc(task.name)}
         </div>
         <div class="kanban-card-meta">
@@ -2859,7 +2931,7 @@ function handleSearch(v) { state.search = v; render(); }
 function setSort(v)       { state.sort = v; render(); }
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); closeModal('cat-modal'); }
+    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); closeModal('cat-modal'); closeModal('detail-modal'); }
     if (e.key === 'Enter' && document.getElementById('task-modal').classList.contains('visible')) {
         if (document.activeElement.tagName !== 'TEXTAREA') saveTask();
     }
