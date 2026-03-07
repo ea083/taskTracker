@@ -681,7 +681,10 @@
             padding: 14px 2px 6px;
             border-bottom: 1px solid var(--border);
             margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
         }
+        .task-group-header:hover { color: var(--text); }
         .task-group-header:first-child { padding-top: 0; }
         .task-group { margin-bottom: 8px; }
         .task-group-count {
@@ -691,6 +694,14 @@
             padding: 1px 7px;
             font-size: 10px;
         }
+        .task-group-chevron {
+            margin-left: auto;
+            font-size: 10px;
+            transition: transform 0.2s;
+            color: var(--text-muted);
+        }
+        .task-group.collapsed .task-group-chevron { transform: rotate(-90deg); }
+        .task-group.collapsed .task-group-body { display: none; }
         .active-section {
             margin-bottom: 18px;
             padding-bottom: 18px;
@@ -1398,6 +1409,7 @@ const state = {
     groupByCategory:      false,
     boardHiddenStatuses:  new Set(), // statuses hidden in board view
     boardHiddenCategories: new Set(), // category ids hidden in board view ('' = uncategorized)
+    collapsedGroups:      new Set(), // category group ids collapsed in list view ('' = uncategorized)
 };
 
 const CAT_COLORS = ['#4f46e5','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#f97316','#06b6d4','#84cc16','#ec4899'];
@@ -1998,24 +2010,28 @@ function renderTasks() {
     state.categories.forEach(cat => {
         const catTasks = groups.get(cat.id);
         if (!catTasks || catTasks.length === 0) return;
-        html += `<div class="task-group">
-            <div class="task-group-header">
+        const collapsed = state.collapsedGroups.has(cat.id);
+        html += `<div class="task-group${collapsed ? ' collapsed' : ''}">
+            <div class="task-group-header" onclick="toggleGroupCollapse('${cat.id}')">
                 <span class="cat-dot" style="width:10px;height:10px;background:${cat.color}"></span>
                 ${esc(cat.name)}
                 <span class="task-group-count">${catTasks.length}</span>
+                <span class="task-group-chevron">&#9660;</span>
             </div>
-            <div class="task-list">
+            <div class="task-group-body task-list">
                 ${catTasks.map(taskCardHtml).join('')}
             </div>
         </div>`;
     });
     if (noCat.length > 0) {
-        html += `<div class="task-group">
-            <div class="task-group-header">
+        const collapsed = state.collapsedGroups.has('');
+        html += `<div class="task-group${collapsed ? ' collapsed' : ''}">
+            <div class="task-group-header" onclick="toggleGroupCollapse('')">
                 Uncategorized
                 <span class="task-group-count">${noCat.length}</span>
+                <span class="task-group-chevron">&#9660;</span>
             </div>
-            <div class="task-list">
+            <div class="task-group-body task-list">
                 ${noCat.map(taskCardHtml).join('')}
             </div>
         </div>`;
@@ -3090,6 +3106,16 @@ function updateCategorySelects() {
     }
     // Update the board view category filter dropdown
     renderBoardCategoryDropdown();
+}
+
+// ── Category Group Collapse ───────────────────
+function toggleGroupCollapse(groupId) {
+    if (state.collapsedGroups.has(groupId)) {
+        state.collapsedGroups.delete(groupId);
+    } else {
+        state.collapsedGroups.add(groupId);
+    }
+    renderTasks();
 }
 
 // ── Board View Filters ────────────────────────
