@@ -3086,6 +3086,40 @@ function calZoom(dir) {
 let calDrag     = null;  // active resize drag state
 let calDragged  = false; // true if pointer actually moved during drag
 
+// Assigns each entry a lane (sub-column) so overlapping entries don't stack.
+// Returns a copy of items with added {lane, laneCount} fields.
+function calLayoutEntries(items) {
+    if (!items.length) return [];
+    const sorted = items.slice().sort((a, b) => a.entry.startTime - b.entry.startTime);
+
+    // Greedy lane assignment: put each entry in the first lane whose last
+    // entry has already ended by this entry's start time.
+    const laneEnds = []; // endTime of the last entry placed in each lane
+    sorted.forEach(item => {
+        let l = laneEnds.findIndex(end => end <= item.entry.startTime);
+        if (l < 0) l = laneEnds.push(0) - 1;
+        laneEnds[l] = item.entry.endTime;
+        item.lane = l;
+    });
+
+    // laneCount for an entry = the highest lane index among all entries that
+    // overlap with it, + 1.  This makes every entry in an overlapping group
+    // share the same column count so they tile cleanly.
+    sorted.forEach(item => {
+        let maxLane = item.lane;
+        sorted.forEach(other => {
+            if (other !== item &&
+                other.entry.startTime < item.entry.endTime &&
+                other.entry.endTime   > item.entry.startTime) {
+                maxLane = Math.max(maxLane, other.lane);
+            }
+        });
+        item.laneCount = maxLane + 1;
+    });
+
+    return sorted;
+}
+
 function calNavWeek(delta) {
     state.calendarWeekOffset += delta;
     renderCalendar();
@@ -3185,28 +3219,39 @@ function renderCalendar() {
             inner += `<div class="cal-now-line" style="top:${topPx.toFixed(1)}px"></div>`;
         }
 
-        // Time entry blocks
-        entries.forEach(({ task, entry }) => {
-            const startDate = new Date(entry.startTime);
-            const dayEndMs  = new Date(ds + 'T00:00:00').getTime() + 86400000;
+        // Time entry blocks — lay out overlapping entries side by side
+        const EDGE = 3; // px gap at column edges
+        const GAP  = 2; // px gap between lanes
+        calLayoutEntries(entries).forEach(({ task, entry, lane, laneCount }) => {
+            const startDate  = new Date(entry.startTime);
+            const dayEndMs   = new Date(ds + 'T00:00:00').getTime() + 86400000;
             const clippedEnd = Math.min(entry.endTime, dayEndMs);
-            const durMs     = Math.max(5 * 60000, clippedEnd - entry.startTime); // min 5 min display
+            const durMs      = Math.max(5 * 60000, clippedEnd - entry.startTime);
 
             const topPx    = (startDate.getHours() + startDate.getMinutes() / 60 + startDate.getSeconds() / 3600) * calHourPx();
             const heightPx = Math.max(18, (durMs / 3600000) * calHourPx());
 
-            const cat    = task.category ? state.categories.find(c => c.id === task.category) : null;
-            const color  = cat ? cat.color : '#4f46e5';
+            const cat     = task.category ? state.categories.find(c => c.id === task.category) : null;
+            const color   = cat ? cat.color : '#4f46e5';
             const bgAlpha = document.body.classList.contains('dark') ? '33' : '18';
-            const bg     = color + bgAlpha;
+            const bg      = color + bgAlpha;
 
             const fmtTime = ms => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
             const isDragging = calDrag?.entryId === entry.id;
             const tipTime = `${fmtTime(entry.startTime)} – ${fmtTime(entry.endTime)}`;
             const tipDur  = fmtSecs(entry.duration);
 
+            // Horizontal position: divide the column evenly among laneCount lanes
+            const pctPerLane  = 100 / laneCount;
+            const leftPct     = lane * pctPerLane;
+            const rightPct    = (laneCount - lane - 1) * pctPerLane;
+            const leftPad     = lane === 0            ? EDGE : GAP;
+            const rightPad    = lane === laneCount - 1 ? EDGE : GAP;
+            const leftStyle   = `calc(${leftPct.toFixed(4)}% + ${leftPad}px)`;
+            const rightStyle  = `calc(${rightPct.toFixed(4)}% + ${rightPad}px)`;
+
             inner += `<div class="cal-entry${isDragging ? ' cal-dragging' : ''}"
-                style="top:${topPx.toFixed(1)}px;height:${heightPx.toFixed(1)}px;border-color:${color};background:${bg}"
+                style="top:${topPx.toFixed(1)}px;height:${heightPx.toFixed(1)}px;border-color:${color};background:${bg};left:${leftStyle};right:${rightStyle}"
                 data-entry-id="${entry.id}"
                 data-tip-name="${esc(task.name)}"
                 data-tip-time="${tipTime}"
