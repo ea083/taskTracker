@@ -756,6 +756,53 @@
             gap: 10px;
             margin-bottom: 14px;
         }
+        .board-filter-wrapper {
+            position: relative;
+        }
+        .board-filter-dropdown {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 6px;
+            display: none;
+            z-index: 200;
+            min-width: 170px;
+            box-shadow: var(--shadow-md);
+        }
+        .board-filter-dropdown.open { display: block; }
+        .board-filter-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text);
+            user-select: none;
+        }
+        .board-filter-item:hover { background: var(--bg); }
+        .board-filter-item input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            accent-color: var(--primary);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .board-filter-item .cat-dot-sm {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        body.dark .board-filter-dropdown {
+            background: var(--surface);
+            border-color: var(--border);
+        }
         .kanban-scroll {
             display: flex;
             gap: 14px;
@@ -1181,6 +1228,31 @@
     <div id="board-view" style="display:none; padding:0 20px 28px;">
         <div class="board-toolbar">
             <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
+            <!-- Status filter dropdown -->
+            <div class="board-filter-wrapper">
+                <button class="btn btn-ghost" id="board-status-filter-btn" onclick="toggleBoardFilterDropdown('board-status-dropdown')">Status &#9662;</button>
+                <div class="board-filter-dropdown" id="board-status-dropdown">
+                    <label class="board-filter-item">
+                        <input type="checkbox" id="bsf-todo" checked onchange="toggleBoardStatusFilter('todo', this.checked)">
+                        To Do
+                    </label>
+                    <label class="board-filter-item">
+                        <input type="checkbox" id="bsf-in-progress" checked onchange="toggleBoardStatusFilter('in-progress', this.checked)">
+                        In Progress
+                    </label>
+                    <label class="board-filter-item">
+                        <input type="checkbox" id="bsf-completed" checked onchange="toggleBoardStatusFilter('completed', this.checked)">
+                        Completed
+                    </label>
+                </div>
+            </div>
+            <!-- Category filter dropdown -->
+            <div class="board-filter-wrapper">
+                <button class="btn btn-ghost" id="board-cat-filter-btn" onclick="toggleBoardFilterDropdown('board-cat-dropdown')">Category &#9662;</button>
+                <div class="board-filter-dropdown" id="board-cat-dropdown">
+                    <!-- populated dynamically by renderBoardCategoryDropdown() -->
+                </div>
+            </div>
         </div>
         <div class="kanban-scroll" id="kanban-scroll"></div>
     </div>
@@ -1314,16 +1386,18 @@ const FIREBASE_CONFIG = {
 
 // ── State ─────────────────────────────────────
 const state = {
-    tasks:           [],
-    activeTimer:     null, // { taskId, startTime, entryId, intervalId }
-    filter:          'all',
-    search:          '',
-    sort:            'created',
-    editingTaskId:   null,
-    view:            'list', // 'list' | 'board'
-    categories:      [],    // [{ id, name, color, createdAt }]
-    categoryFilter:  'all', // 'all' | categoryId
-    groupByCategory: false,
+    tasks:                [],
+    activeTimer:          null, // { taskId, startTime, entryId, intervalId }
+    filter:               'all',
+    search:               '',
+    sort:                 'created',
+    editingTaskId:        null,
+    view:                 'list', // 'list' | 'board'
+    categories:           [],    // [{ id, name, color, createdAt }]
+    categoryFilter:       'all', // 'all' | categoryId
+    groupByCategory:      false,
+    boardHiddenStatuses:  new Set(), // statuses hidden in board view
+    boardHiddenCategories: new Set(), // category ids hidden in board view ('' = uncategorized)
 };
 
 const CAT_COLORS = ['#4f46e5','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#f97316','#06b6d4','#84cc16','#ec4899'];
@@ -2713,11 +2787,17 @@ function renderBoard() {
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().slice(0, 10);
 
-    // Group tasks by doDate
+    // Group tasks by doDate (apply board filters first)
     const groups = new Map();  // doDate string → task[]
     const unscheduled = [];
 
     state.tasks.forEach(task => {
+        // Apply status filter
+        if (state.boardHiddenStatuses.has(task.status)) return;
+        // Apply category filter (use '' as key for uncategorized tasks)
+        const catKey = task.category || '';
+        if (state.boardHiddenCategories.has(catKey)) return;
+
         if (!task.doDate) {
             unscheduled.push(task);
         } else {
@@ -3008,6 +3088,94 @@ function updateCategorySelects() {
             state.categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
         if (state.categories.find(c => c.id === prev)) taskCatSel.value = prev;
     }
+    // Update the board view category filter dropdown
+    renderBoardCategoryDropdown();
+}
+
+// ── Board View Filters ────────────────────────
+function toggleBoardFilterDropdown(id) {
+    const target = document.getElementById(id);
+    if (!target) return;
+    const isOpen = target.classList.contains('open');
+    // Close all dropdowns first
+    document.querySelectorAll('.board-filter-dropdown').forEach(d => d.classList.remove('open'));
+    if (!isOpen) target.classList.add('open');
+}
+
+// Close board dropdowns when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.board-filter-wrapper')) {
+        document.querySelectorAll('.board-filter-dropdown').forEach(d => d.classList.remove('open'));
+    }
+});
+
+function toggleBoardStatusFilter(status, checked) {
+    if (checked) {
+        state.boardHiddenStatuses.delete(status);
+    } else {
+        state.boardHiddenStatuses.add(status);
+    }
+    updateBoardFilterBtnState('board-status-filter-btn', state.boardHiddenStatuses.size > 0);
+    renderBoard();
+}
+
+function toggleBoardCategoryFilter(catId, checked) {
+    if (checked) {
+        state.boardHiddenCategories.delete(catId);
+    } else {
+        state.boardHiddenCategories.add(catId);
+    }
+    updateBoardFilterBtnState('board-cat-filter-btn', state.boardHiddenCategories.size > 0);
+    renderBoard();
+}
+
+function updateBoardFilterBtnState(btnId, isActive) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    if (isActive) {
+        btn.classList.add('active');
+    } else {
+        btn.classList.remove('active');
+    }
+}
+
+function renderBoardCategoryDropdown() {
+    const dropdown = document.getElementById('board-cat-dropdown');
+    if (!dropdown) return;
+
+    // Remove any category IDs from hidden set that no longer exist
+    const validIds = new Set(state.categories.map(c => c.id));
+    validIds.add(''); // '' represents uncategorized
+    state.boardHiddenCategories.forEach(id => {
+        if (!validIds.has(id)) state.boardHiddenCategories.delete(id);
+    });
+
+    const items = [];
+
+    // Uncategorized option
+    const noneChecked = !state.boardHiddenCategories.has('');
+    items.push(`<label class="board-filter-item">
+        <input type="checkbox" ${noneChecked ? 'checked' : ''} onchange="toggleBoardCategoryFilter('', this.checked)">
+        <span style="color:var(--text-muted);font-style:italic">Uncategorized</span>
+    </label>`);
+
+    // One item per category
+    state.categories.forEach(c => {
+        const isChecked = !state.boardHiddenCategories.has(c.id);
+        items.push(`<label class="board-filter-item">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleBoardCategoryFilter('${c.id}', this.checked)">
+            <span class="cat-dot-sm" style="background:${c.color}"></span>
+            ${esc(c.name)}
+        </label>`);
+    });
+
+    if (items.length === 1) {
+        // Only uncategorized — no categories yet
+        items.push(`<div style="padding:4px 8px;font-size:12px;color:var(--text-muted)">No categories yet</div>`);
+    }
+
+    dropdown.innerHTML = items.join('');
+    updateBoardFilterBtnState('board-cat-filter-btn', state.boardHiddenCategories.size > 0);
 }
 
 // ── Event Handlers ────────────────────────────
