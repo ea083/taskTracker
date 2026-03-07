@@ -481,6 +481,19 @@
             margin-bottom: 8px;
         }
         .detail-subsub { margin-left: 22px; padding-left: 10px; border-left: 2px solid var(--border); }
+        .modal-subtask-name-input {
+            flex: 1;
+            padding: 3px 7px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 13px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .modal-subtask-name-input:focus { border-color: var(--primary); }
 
         /* ── Forms ── */
         .form-group { margin-bottom: 14px; }
@@ -1219,6 +1232,16 @@
             <div class="form-group">
                 <label for="task-do-date">Do Date <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">(optional — for board view)</span></label>
                 <input type="date" id="task-do-date">
+            </div>
+            <div class="form-group">
+                <label>Subtasks</label>
+                <div id="modal-subtask-list"></div>
+                <div class="subtask-add" style="margin-top:6px">
+                    <input type="text" class="subtask-input" id="modal-subtask-input"
+                           placeholder="Add a subtask…" maxlength="120"
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();modalAddSubtask()}">
+                    <button type="button" class="subtask-add-btn" onclick="modalAddSubtask()">Add</button>
+                </div>
             </div>
         </div>
         <div class="modal-footer">
@@ -1987,6 +2010,32 @@ function openTaskDetail(taskId) {
     openModal('detail-modal');
 }
 
+let modalSubtasks = [];
+
+function renderModalSubtasks() {
+    const list = document.getElementById('modal-subtask-list');
+    if (!list) return;
+    list.innerHTML = modalSubtasks.map((s, i) => `
+        <div class="subtask-item" style="margin-bottom:4px">
+            <input type="checkbox" class="subtask-checkbox" ${s.done ? 'checked' : ''}
+                   onchange="modalSubtasks[${i}].done=this.checked">
+            <input type="text" class="modal-subtask-name-input" value="${esc(s.name)}"
+                   maxlength="120" onchange="modalSubtasks[${i}].name=this.value.trim()||modalSubtasks[${i}].name">
+            <button type="button" class="icon-btn danger" style="width:22px;height:22px;font-size:11px;flex-shrink:0"
+                    onclick="modalSubtasks.splice(${i},1);renderModalSubtasks()">&#x2715;</button>
+        </div>`).join('');
+}
+
+function modalAddSubtask() {
+    const input = document.getElementById('modal-subtask-input');
+    const name  = input.value.trim();
+    if (!name) return;
+    modalSubtasks.push({ id: uid(), name, done: false, subtasks: [] });
+    input.value = '';
+    renderModalSubtasks();
+    input.focus();
+}
+
 function openAddTask() {
     state.editingTaskId = null;
     document.getElementById('task-modal-title').textContent = 'New Task';
@@ -1997,6 +2046,8 @@ function openAddTask() {
     document.getElementById('task-do-date').value  = new Date().toISOString().slice(0, 10);
     document.getElementById('task-category').value = '';
     document.getElementById('task-name').classList.remove('error');
+    modalSubtasks = [];
+    renderModalSubtasks();
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
 }
@@ -2013,6 +2064,8 @@ function openEditTask(id) {
     document.getElementById('task-do-date').value  = t.doDate || '';
     document.getElementById('task-category').value = t.category || '';
     document.getElementById('task-name').classList.remove('error');
+    modalSubtasks = JSON.parse(JSON.stringify(t.subtasks || []));
+    renderModalSubtasks();
     openModal('task-modal');
     setTimeout(() => document.getElementById('task-name').focus(), 220);
 }
@@ -2022,6 +2075,10 @@ function saveTask() {
     const name   = nameEl.value.trim();
     if (!name) { nameEl.classList.add('error'); nameEl.focus(); return; }
     nameEl.classList.remove('error');
+    // Flush any in-progress subtask name edits before saving
+    document.querySelectorAll('.modal-subtask-name-input').forEach((inp, i) => {
+        if (modalSubtasks[i]) modalSubtasks[i].name = inp.value.trim() || modalSubtasks[i].name;
+    });
     const data = {
         name,
         description: document.getElementById('task-desc').value,
@@ -2029,6 +2086,7 @@ function saveTask() {
         status:      document.getElementById('task-status').value,
         doDate:      document.getElementById('task-do-date').value || null,
         category:    document.getElementById('task-category').value || null,
+        subtasks:    modalSubtasks,
     };
     state.editingTaskId ? updateTask(state.editingTaskId, data) : createTask(data);
     closeModal('task-modal');
