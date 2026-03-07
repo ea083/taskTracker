@@ -578,6 +578,17 @@
         .time-entry-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
         .time-entry-note { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 2px; }
         .no-entries { color: var(--text-muted); font-size: 13px; text-align: center; padding: 16px 0; }
+        /* Daily tasks row in calendar */
+        .cal-daily-row      { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--surface); }
+        .cal-gutter-daily   { width: 52px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+        .cal-daily-manage-btn { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted); padding: 2px 4px; border-radius: 4px; line-height: 1; }
+        .cal-daily-manage-btn:hover { background: var(--hover); color: var(--text); }
+        .cal-daily-col      { flex: 1; border-right: 1px solid var(--border); padding: 5px 6px; display: flex; flex-direction: column; gap: 3px; min-height: 28px; }
+        .cal-daily-col:last-child { border-right: none; }
+        .cal-daily-item     { display: flex; align-items: center; gap: 5px; font-size: 12px; line-height: 1.2; cursor: pointer; color: var(--text); user-select: none; }
+        .cal-daily-item input[type="checkbox"] { cursor: pointer; flex-shrink: 0; accent-color: var(--primary); }
+        .cal-daily-item.done span { text-decoration: line-through; color: var(--text-muted); }
+        .cal-daily-empty    { font-size: 11px; color: var(--text-muted); font-style: italic; }
         /* Editable time entries inside Edit Task modal */
         .modal-time-entry { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
         .modal-te-row     { display: flex; align-items: flex-end; gap: 8px; }
@@ -1585,6 +1596,11 @@
             <div class="cal-head-row" id="cal-head-row">
                 <div class="cal-gutter-head"></div>
             </div>
+            <div class="cal-daily-row" id="cal-daily-row">
+                <div class="cal-gutter-daily">
+                    <button class="cal-daily-manage-btn" onclick="openDailyTaskManager()" title="Manage daily tasks">&#9998;</button>
+                </div>
+            </div>
             <div class="cal-body-scroll" id="cal-body-scroll">
                 <div class="cal-body-inner">
                     <div class="cal-time-axis" id="cal-time-axis"></div>
@@ -1660,6 +1676,29 @@
         <div class="modal-footer">
             <button class="btn btn-ghost" onclick="closeModal('task-modal')">Cancel</button>
             <button class="btn btn-primary" onclick="saveTask()">Save Task</button>
+        </div>
+    </div>
+</div>
+
+<!-- Daily Task Manager Modal -->
+<div class="modal-overlay" id="daily-task-modal" onclick="overlayClick(event,'daily-task-modal')">
+    <div class="modal" style="max-width:400px">
+        <div class="modal-header">
+            <h2>Daily Tasks</h2>
+            <button class="close-btn" onclick="closeModal('daily-task-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">These tasks appear as a checklist at the top of every day in the calendar.</p>
+            <div id="daily-task-list"></div>
+            <div class="subtask-add" style="margin-top:8px">
+                <input type="text" class="subtask-input" id="daily-task-input"
+                       placeholder="Add a daily task…" maxlength="80"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addDailyTask()}">
+                <button class="subtask-add-btn" onclick="addDailyTask()">Add</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="closeModal('daily-task-modal')">Done</button>
         </div>
     </div>
 </div>
@@ -1741,6 +1780,8 @@ const state = {
     boardHiddenCategories: new Set(), // category ids hidden in board view ('' = uncategorized)
     collapsedGroups:      new Set(), // category group ids collapsed in list view ('' = uncategorized)
     calendarWeekOffset:   0,         // 0 = current week, -1 = last week, etc.
+    dailyTasks:           [],        // [{ id, name }] repeating calendar checklist items
+    dailyDone:            {},        // { "YYYY-MM-DD": { taskId: true } }
 };
 
 const CAT_COLORS = ['#4f46e5','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#f97316','#06b6d4','#84cc16','#ec4899'];
@@ -1751,6 +1792,10 @@ let currentUser          = null;
 let tasksRef             = null;
 let categoriesRef        = null;
 let activeTimerRef       = null; // shared across devices via Firebase
+let dailyTasksRef        = null;
+let dailyDoneRef         = null;
+let offDailyTasksListener = null;
+let offDailyDoneListener  = null;
 let offListener          = null;
 let offCatListener       = null;
 let offTimerListener     = null;
@@ -1891,8 +1936,10 @@ function showApp(user) {
 function showLogin() {
     document.getElementById('login-screen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
-    state.tasks = [];
-    state.categories = [];
+    state.tasks       = [];
+    state.categories  = [];
+    state.dailyTasks  = [];
+    state.dailyDone   = {};
     state.listHiddenStatuses.clear();
     state.listHiddenCategories.clear();
     state.groupByCategory = false;
@@ -1903,11 +1950,15 @@ function showLogin() {
 // ── Firebase Database ──────────────────────────
 function initDatabase() {
     if (offListener)      offListener();
-    if (offCatListener)   offCatListener();
-    if (offTimerListener) offTimerListener();
+    if (offCatListener)        offCatListener();
+    if (offTimerListener)      offTimerListener();
+    if (offDailyTasksListener) offDailyTasksListener();
+    if (offDailyDoneListener)  offDailyDoneListener();
     tasksRef       = db.ref('users/' + currentUser.uid + '/tasks');
     categoriesRef  = db.ref('users/' + currentUser.uid + '/categories');
     activeTimerRef = db.ref('users/' + currentUser.uid + '/activeTimer');
+    dailyTasksRef  = db.ref('users/' + currentUser.uid + '/dailyTasks');
+    dailyDoneRef   = db.ref('users/' + currentUser.uid + '/dailyDone');
     dbInitialized     = false;
     _pendingTimerSync = undefined;
 
@@ -1959,15 +2010,30 @@ function initDatabase() {
             syncActiveTimer(val);
         }
     }, err => { console.error('Active-timer listener error:', err.message); });
+
+    offDailyTasksListener = dailyTasksRef.on('value', snapshot => {
+        const raw = snapshot.val() || {};
+        state.dailyTasks = Object.values(raw).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        if (dbInitialized) { renderCalendar(); renderDailyTaskList(); }
+    }, err => { console.error('Daily tasks listener error:', err.message); });
+
+    offDailyDoneListener = dailyDoneRef.on('value', snapshot => {
+        state.dailyDone = snapshot.val() || {};
+        if (dbInitialized) renderCalendar();
+    }, err => { console.error('Daily done listener error:', err.message); });
 }
 
 function teardownDatabase() {
-    if (offListener)      { offListener();      offListener      = null; }
-    if (offCatListener)   { offCatListener();   offCatListener   = null; }
-    if (offTimerListener) { offTimerListener(); offTimerListener = null; }
+    if (offListener)           { offListener();           offListener           = null; }
+    if (offCatListener)        { offCatListener();        offCatListener        = null; }
+    if (offTimerListener)      { offTimerListener();      offTimerListener      = null; }
+    if (offDailyTasksListener) { offDailyTasksListener(); offDailyTasksListener = null; }
+    if (offDailyDoneListener)  { offDailyDoneListener();  offDailyDoneListener  = null; }
     tasksRef       = null;
     categoriesRef  = null;
     activeTimerRef = null;
+    dailyTasksRef  = null;
+    dailyDoneRef   = null;
     dbInitialized  = false;
     if (hoursChart) { hoursChart.destroy(); hoursChart = null; }
 }
@@ -2468,6 +2534,12 @@ function openTaskDetail(taskId) {
 
 let modalSubtasks     = [];
 let modalTimeEntries  = [];
+
+function localDateStr(d) {
+    return d.getFullYear() + '-' +
+           String(d.getMonth() + 1).padStart(2, '0') + '-' +
+           String(d.getDate()).padStart(2, '0');
+}
 
 function tsToDatetimeLocal(ts) {
     const d = new Date(ts);
@@ -3190,12 +3262,65 @@ function calNavWeek(delta) {
     renderCalendar();
 }
 
+// ── Daily Tasks ────────────────────────────────
+function toggleDailyDone(dateStr, taskId, checked) {
+    if (!dailyDoneRef) return;
+    if (checked) {
+        dailyDoneRef.child(dateStr).child(taskId).set(true);
+    } else {
+        dailyDoneRef.child(dateStr).child(taskId).remove();
+    }
+}
+
+function openDailyTaskManager() {
+    renderDailyTaskList();
+    openModal('daily-task-modal');
+    setTimeout(() => document.getElementById('daily-task-input').focus(), 220);
+}
+
+function renderDailyTaskList() {
+    const list = document.getElementById('daily-task-list');
+    if (!list) return;
+    if (!state.dailyTasks.length) {
+        list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No daily tasks yet.</div>';
+        return;
+    }
+    list.innerHTML = state.dailyTasks.map(t => `
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+            <span style="flex:1;font-size:14px">${esc(t.name)}</span>
+            <button class="icon-btn danger" title="Remove" onclick="removeDailyTask('${t.id}')">✕</button>
+        </div>`).join('');
+}
+
+function addDailyTask() {
+    const input = document.getElementById('daily-task-input');
+    const name  = input.value.trim();
+    if (!name || !dailyTasksRef) return;
+    const id = uid();
+    dailyTasksRef.child(id).set({ id, name, order: Date.now() });
+    input.value = '';
+    input.focus();
+}
+
+function removeDailyTask(id) {
+    if (!dailyTasksRef) return;
+    dailyTasksRef.child(id).remove();
+    // Remove all completions for this task across all dates
+    if (dailyDoneRef) {
+        Object.keys(state.dailyDone).forEach(dateStr => {
+            if (state.dailyDone[dateStr]?.[id]) {
+                dailyDoneRef.child(dateStr).child(id).remove();
+            }
+        });
+    }
+}
+
 function renderCalendar() {
     if (state.view !== 'calendar') return;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = localDateStr(today);
 
     // Week starts on Sunday
     const weekStart = new Date(today);
@@ -3223,11 +3348,11 @@ function renderCalendar() {
 
     // Build dateStr → [{task, entry}] map for this week
     const dayMap = new Map();
-    days.forEach(d => dayMap.set(d.toISOString().slice(0, 10), []));
+    days.forEach(d => dayMap.set(localDateStr(d), []));
     state.tasks.forEach(task => {
         (task.timeEntries || []).forEach(entry => {
             if (!entry.startTime || !entry.endTime) return;
-            const dateStr = new Date(entry.startTime).toISOString().slice(0, 10);
+            const dateStr = localDateStr(new Date(entry.startTime));
             if (dayMap.has(dateStr)) dayMap.get(dateStr).push({ task, entry });
         });
     });
@@ -3238,13 +3363,37 @@ function renderCalendar() {
         const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         headEl.innerHTML = '<div class="cal-gutter-head"></div>' +
             days.map((d, i) => {
-                const ds      = d.toISOString().slice(0, 10);
+                const ds      = localDateStr(d);
                 const isToday = ds === todayStr;
                 return `<div class="cal-day-head${isToday ? ' is-today' : ''}">
                     <span class="cal-day-name">${DAY_NAMES[i]}</span>
                     <span class="cal-day-num${isToday ? ' is-today' : ''}">${d.getDate()}</span>
                 </div>`;
             }).join('');
+    }
+
+    // ── Daily tasks row ──
+    const dailyRowEl = document.getElementById('cal-daily-row');
+    if (dailyRowEl) {
+        let dailyHtml = '<div class="cal-gutter-daily"><button class="cal-daily-manage-btn" onclick="openDailyTaskManager()" title="Manage daily tasks">&#9998;</button></div>';
+        days.forEach(d => {
+            const ds   = localDateStr(d);
+            const done = state.dailyDone[ds] || {};
+            if (!state.dailyTasks.length) {
+                dailyHtml += `<div class="cal-daily-col"><span class="cal-daily-empty">No daily tasks</span></div>`;
+            } else {
+                const items = state.dailyTasks.map(t => {
+                    const checked = done[t.id] ? 'checked' : '';
+                    const cls     = done[t.id] ? ' done' : '';
+                    return `<label class="cal-daily-item${cls}">
+                        <input type="checkbox" ${checked} onchange="toggleDailyDone('${ds}','${t.id}',this.checked)">
+                        <span>${esc(t.name)}</span>
+                    </label>`;
+                }).join('');
+                dailyHtml += `<div class="cal-daily-col">${items}</div>`;
+            }
+        });
+        dailyRowEl.innerHTML = dailyHtml;
     }
 
     // ── Time axis ──
@@ -3265,7 +3414,7 @@ function renderCalendar() {
 
     let colsHtml = '';
     days.forEach(d => {
-        const ds      = d.toISOString().slice(0, 10);
+        const ds      = localDateStr(d);
         const isToday = ds === todayStr;
         const entries = dayMap.get(ds) || [];
 
@@ -3544,7 +3693,7 @@ function renderBoard() {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = localDateStr(today);
 
     // Group tasks by doDate (apply board filters first)
     const groups = new Map();  // doDate string → task[]
