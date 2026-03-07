@@ -3226,10 +3226,10 @@ function renderCalendar() {
             const startDate  = new Date(entry.startTime);
             const dayEndMs   = new Date(ds + 'T00:00:00').getTime() + 86400000;
             const clippedEnd = Math.min(entry.endTime, dayEndMs);
-            const durMs      = Math.max(5 * 60000, clippedEnd - entry.startTime);
+            const durMs      = clippedEnd - entry.startTime;
 
             const topPx    = (startDate.getHours() + startDate.getMinutes() / 60 + startDate.getSeconds() / 3600) * calHourPx();
-            const heightPx = Math.max(18, (durMs / 3600000) * calHourPx());
+            const heightPx = Math.max(2, (durMs / 3600000) * calHourPx());
 
             const cat     = task.category ? state.categories.find(c => c.id === task.category) : null;
             const color   = cat ? cat.color : '#4f46e5';
