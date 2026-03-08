@@ -1313,6 +1313,37 @@
         body.dark .kanban-week-body {
             background: #161c2d;
         }
+        .kanban-week-tab {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .kanban-week-tab:hover { opacity: 0.8; }
+        .kanban-week-chevron {
+            font-size: 10px;
+            transition: transform 0.15s;
+            display: inline-block;
+        }
+        .kanban-week-count {
+            display: none;
+            opacity: 0.65;
+            font-weight: 600;
+        }
+        .kanban-week.is-collapsed .kanban-week-tab {
+            border-bottom: 1px solid var(--border);
+            border-radius: 5px;
+        }
+        .kanban-week.is-collapsed .kanban-week-body {
+            display: none;
+        }
+        .kanban-week.is-collapsed .kanban-week-count {
+            display: inline;
+        }
+        .kanban-week.is-collapsed .kanban-week-chevron {
+            transform: rotate(-90deg);
+        }
         .kanban-gap {
             display: flex;
             flex-direction: column;
@@ -1892,6 +1923,7 @@ const state = {
     boardHiddenStatuses:  new Set(), // statuses hidden in board view
     boardHiddenCategories: new Set(), // category ids hidden in board view ('' = uncategorized)
     collapsedGroups:      new Set(), // category group ids collapsed in list view ('' = uncategorized)
+    collapsedWeeks:       new Set(), // week keys (Monday YYYY-MM-DD) collapsed in board view
     calendarWeekOffset:   0,         // 0 = current week, -1 = last week, etc.
     dailyTasks:           [],        // [{ id, name }] repeating calendar checklist items
     dailyDone:            {},        // { "YYYY-MM-DD": { taskId: true } }
@@ -4088,8 +4120,10 @@ function renderBoard() {
 
         // Intra-week columns with gap indicators between non-consecutive days
         let innerHtml = '';
+        let weekTaskCount = 0;
         for (let ei = 0; ei < group.entries.length; ei++) {
             const { date, tasks } = group.entries[ei];
+            weekTaskCount += tasks.length;
             if (ei > 0) {
                 const prevDate = group.entries[ei - 1].date;
                 const gap = Math.round(
@@ -4100,8 +4134,12 @@ function renderBoard() {
             innerHtml += kanbanColHtml(date, tasks, todayStr);
         }
 
-        boardHtml += `<div class="kanban-week">
-            <div class="kanban-week-tab">Week of ${weekLabel}</div>
+        const isCollapsed = state.collapsedWeeks.has(group.weekKey);
+        const taskWord = weekTaskCount === 1 ? 'task' : 'tasks';
+        boardHtml += `<div class="kanban-week${isCollapsed ? ' is-collapsed' : ''}" data-week-key="${group.weekKey}">
+            <div class="kanban-week-tab" onclick="toggleWeekCollapse('${group.weekKey}')">
+                <span class="kanban-week-chevron">▾</span>Week of ${weekLabel}<span class="kanban-week-count">· ${weekTaskCount} ${taskWord}</span>
+            </div>
             <div class="kanban-week-body">${innerHtml}</div>
         </div>`;
     }
@@ -4129,6 +4167,18 @@ function kanbanGapHtml(hiddenDays) {
         <div class="kanban-gap-dots">•••</div>
         <div class="kanban-gap-label">${label}</div>
     </div>`;
+}
+
+function toggleWeekCollapse(weekKey) {
+    if (state.collapsedWeeks.has(weekKey)) {
+        state.collapsedWeeks.delete(weekKey);
+    } else {
+        state.collapsedWeeks.add(weekKey);
+    }
+    const weekEl = document.querySelector(`.kanban-week[data-week-key="${weekKey}"]`);
+    if (!weekEl) return;
+    const collapsed = state.collapsedWeeks.has(weekKey);
+    weekEl.classList.toggle('is-collapsed', collapsed);
 }
 
 // ── Kanban Subtask Tooltip ─────────────────────
