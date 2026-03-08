@@ -870,6 +870,26 @@
             align-items: center;
             gap: 8px;
             margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+        .cal-nav-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+        .cal-ctrl-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        @media (max-width: 640px) {
+            .cal-nav-group, .cal-ctrl-group {
+                width: 100%;
+                flex: none;
+                justify-content: center;
+            }
         }
         .cal-week-label {
             font-size: 15px;
@@ -1726,18 +1746,22 @@
     <!-- Calendar View — lives outside <main> so it is not width-constrained -->
     <div id="calendar-view" style="display:none; padding:0 20px 28px;">
         <div class="cal-toolbar">
-            <button class="btn btn-ghost btn-sm" onclick="calNavPrev()">&#8592; Prev</button>
-            <span class="cal-week-label" id="cal-week-label"></span>
-            <button class="btn btn-ghost btn-sm" onclick="calNavNext()">Next &#8594;</button>
-            <button class="btn btn-ghost btn-sm" onclick="calNavToday()">Today</button>
-            <div class="cal-view-toggle">
-                <button id="cal-mode-week" class="btn btn-sm" onclick="setCalMode('week')">Week</button>
-                <button id="cal-mode-day"  class="btn btn-sm" onclick="setCalMode('day')">Day</button>
+            <div class="cal-nav-group">
+                <button class="btn btn-ghost btn-sm" onclick="calNavPrev()">&#8592; Prev</button>
+                <span class="cal-week-label" id="cal-week-label"></span>
+                <button class="btn btn-ghost btn-sm" onclick="calNavNext()">Next &#8594;</button>
             </div>
-            <div class="cal-zoom-controls">
-                <button class="btn btn-ghost btn-sm" onclick="calZoom(-1)" title="Zoom out">&#x2212;</button>
-                <span class="cal-zoom-label" id="cal-zoom-label"></span>
-                <button class="btn btn-ghost btn-sm" onclick="calZoom(1)" title="Zoom in">&#x2B;</button>
+            <div class="cal-ctrl-group">
+                <button class="btn btn-ghost btn-sm" onclick="calNavToday()">Today</button>
+                <div class="cal-view-toggle">
+                    <button id="cal-mode-week" class="btn btn-sm" onclick="setCalMode('week')">Week</button>
+                    <button id="cal-mode-day"  class="btn btn-sm" onclick="setCalMode('day')">Day</button>
+                </div>
+                <div class="cal-zoom-controls">
+                    <button class="btn btn-ghost btn-sm" onclick="calZoom(-1)" title="Zoom out">&#x2212;</button>
+                    <span class="cal-zoom-label" id="cal-zoom-label"></span>
+                    <button class="btn btn-ghost btn-sm" onclick="calZoom(1)" title="Zoom in">&#x2B;</button>
+                </div>
             </div>
         </div>
         <div class="cal-outer">
