@@ -1278,6 +1278,41 @@
         .kst-item.done .kst-check { color: var(--success); }
         .kst-sub { padding-left: 15px; font-size: 11px; }
 
+        .kanban-week {
+            display: inline-flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            align-items: flex-start;
+        }
+        .kanban-week-tab {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-muted);
+            padding: 3px 10px;
+            background: #e8eaf4;
+            border: 1px solid var(--border);
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            margin-left: 8px;
+            position: relative;
+            z-index: 1;
+            white-space: nowrap;
+        }
+        .kanban-week-body {
+            display: flex;
+            flex-direction: row;
+            gap: 14px;
+            background: #e8eaf4;
+            border: 1px solid var(--border);
+            border-radius: 0 6px 6px 6px;
+            padding: 8px;
+        }
+        body.dark .kanban-week-tab,
+        body.dark .kanban-week-body {
+            background: #161c2d;
+        }
         .kanban-gap {
             display: flex;
             flex-direction: column;
@@ -4019,20 +4054,56 @@ function renderBoard() {
     });
     const boardScrollLeft = scroll.scrollLeft;
 
-    // Build HTML: dated columns (with gap indicators) then unscheduled
+    // Group sorted dated columns by Monday-based week
+    const weekGroups = []; // [{weekKey, entries: [{date, tasks}]}]
+    for (const [date, tasks] of sorted) {
+        const weekKey = getMondayStr(date);
+        const last = weekGroups[weekGroups.length - 1];
+        if (last && last.weekKey === weekKey) {
+            last.entries.push({ date, tasks });
+        } else {
+            weekGroups.push({ weekKey, entries: [{ date, tasks }] });
+        }
+    }
+
+    // Build HTML: week groups (with cross-week gap indicators) then unscheduled
     let boardHtml = '';
-    for (let i = 0; i < sorted.length; i++) {
-        const [date, tasks] = sorted[i];
-        if (i > 0) {
-            const prevDate = sorted[i - 1][0];
-            if (prevDate && date) {
+    for (let wi = 0; wi < weekGroups.length; wi++) {
+        const group = weekGroups[wi];
+
+        // Gap between the previous week group and this one
+        if (wi > 0) {
+            const prevEntries = weekGroups[wi - 1].entries;
+            const prevLastDate = prevEntries[prevEntries.length - 1].date;
+            const curFirstDate = group.entries[0].date;
+            const gap = Math.round(
+                (new Date(curFirstDate + 'T00:00:00') - new Date(prevLastDate + 'T00:00:00')) / 86400000
+            ) - 1;
+            if (gap > 0) boardHtml += kanbanGapHtml(gap);
+        }
+
+        // Week tab label: "Week of Mon D"
+        const weekMon = new Date(group.weekKey + 'T00:00:00');
+        const weekLabel = weekMon.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+        // Intra-week columns with gap indicators between non-consecutive days
+        let innerHtml = '';
+        for (let ei = 0; ei < group.entries.length; ei++) {
+            const { date, tasks } = group.entries[ei];
+            if (ei > 0) {
+                const prevDate = group.entries[ei - 1].date;
                 const gap = Math.round(
                     (new Date(date + 'T00:00:00') - new Date(prevDate + 'T00:00:00')) / 86400000
-                ) - 1; // number of hidden days
-                if (gap > 0) boardHtml += kanbanGapHtml(gap);
+                ) - 1;
+                if (gap > 0) innerHtml += kanbanGapHtml(gap);
             }
+            innerHtml += kanbanColHtml(date, tasks, todayStr);
         }
-        boardHtml += kanbanColHtml(date, tasks, todayStr);
+
+        boardHtml += `<div class="kanban-week">
+            <div class="kanban-week-tab">Week of ${weekLabel}</div>
+            <div class="kanban-week-body">${innerHtml}</div>
+        </div>`;
     }
     boardHtml += kanbanColHtml(null, unscheduled, todayStr);
     scroll.innerHTML = boardHtml;
@@ -4043,6 +4114,13 @@ function renderBoard() {
         if (saved) col.querySelector('.kanban-col-body').scrollTop = saved;
     });
     scroll.scrollLeft = boardScrollLeft;
+}
+
+function getMondayStr(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const day = d.getDay(); // 0=Sun … 6=Sat
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    return localDateStr(d);
 }
 
 function kanbanGapHtml(hiddenDays) {
