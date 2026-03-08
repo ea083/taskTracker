@@ -589,6 +589,17 @@
         .cal-daily-item input[type="checkbox"] { cursor: pointer; flex-shrink: 0; accent-color: var(--primary); }
         .cal-daily-item.done span { text-decoration: line-through; color: var(--text-muted); }
         .cal-daily-empty    { font-size: 11px; color: var(--text-muted); font-style: italic; }
+        /* Planned tasks row in calendar */
+        .cal-planned-row    { display: flex; flex-shrink: 0; border-bottom: 2px solid var(--border); background: var(--surface); }
+        .cal-gutter-planned { width: 52px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+        .cal-planned-label  { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+        .cal-planned-col    { flex: 1; border-right: 1px solid var(--border); padding: 4px 5px; max-height: 110px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 28px; }
+        .cal-planned-col:last-child { border-right: none; }
+        .cal-task-mini      { display: flex; align-items: center; gap: 4px; padding: 2px 5px 2px 4px; border-radius: 3px; font-size: 11px; line-height: 1.3; cursor: pointer; border-left: 3px solid var(--border); }
+        .cal-task-mini:hover { background: var(--hover); }
+        .cal-task-mini-dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .cal-task-mini-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cal-task-mini.status-completed .cal-task-mini-name { text-decoration: line-through; color: var(--text-muted); }
         /* Editable time entries inside Edit Task modal */
         .modal-time-entry { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
         .modal-te-row     { display: flex; align-items: flex-end; gap: 8px; }
@@ -1600,6 +1611,9 @@
                 <div class="cal-gutter-daily">
                     <button class="cal-daily-manage-btn" onclick="openDailyTaskManager()" title="Manage daily tasks">&#9998;</button>
                 </div>
+            </div>
+            <div class="cal-planned-row" id="cal-planned-row">
+                <div class="cal-gutter-planned"></div>
             </div>
             <div class="cal-body-scroll" id="cal-body-scroll">
                 <div class="cal-body-inner">
@@ -3394,6 +3408,33 @@ function renderCalendar() {
             }
         });
         dailyRowEl.innerHTML = dailyHtml;
+    }
+
+    // ── Planned tasks row ──
+    const plannedRowEl = document.getElementById('cal-planned-row');
+    if (plannedRowEl) {
+        const PRIORITY_COLOR = { high: '#ef4444', medium: '#f59e0b', low: '#10b981' };
+        const STATUS_DOT     = { pending: '#94a3b8', 'in-progress': '#3b82f6', completed: '#10b981' };
+        let plannedHtml = '<div class="cal-gutter-planned"><span class="cal-planned-label">Tasks</span></div>';
+        days.forEach(d => {
+            const ds       = localDateStr(d);
+            const dayTasks = state.tasks.filter(t => t.doDate === ds);
+            if (!dayTasks.length) {
+                plannedHtml += `<div class="cal-planned-col"></div>`;
+            } else {
+                const cards = dayTasks.map(t => {
+                    const border = PRIORITY_COLOR[t.priority] || 'var(--border)';
+                    const dot    = STATUS_DOT[t.status]    || '#94a3b8';
+                    return `<div class="cal-task-mini status-${t.status}" style="border-left-color:${border}"
+                                 onclick="openTaskDetail('${t.id}')">
+                                <span class="cal-task-mini-dot" style="background:${dot}"></span>
+                                <span class="cal-task-mini-name">${esc(t.name)}</span>
+                            </div>`;
+                }).join('');
+                plannedHtml += `<div class="cal-planned-col">${cards}</div>`;
+            }
+        });
+        plannedRowEl.innerHTML = plannedHtml;
     }
 
     // ── Time axis ──
