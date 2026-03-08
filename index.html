@@ -1834,8 +1834,11 @@
 <div class="modal-overlay" id="cal-entry-modal" onclick="overlayClick(event,'cal-entry-modal')">
     <div class="modal" style="max-width:380px">
         <div class="modal-header">
-            <h2 id="cal-entry-modal-title" style="font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px"></h2>
-            <button class="close-btn" onclick="closeModal('cal-entry-modal')">&times;</button>
+            <h2 id="cal-entry-modal-title" style="font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px"></h2>
+            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+                <button class="icon-btn" onclick="calGoToTask()" title="Edit task" style="font-size:14px;padding:2px 5px">✎</button>
+                <button class="close-btn" onclick="closeModal('cal-entry-modal')">&times;</button>
+            </div>
         </div>
         <div class="modal-body">
             <div class="form-group">
@@ -3858,6 +3861,11 @@ function calEntryClick(e, taskId, entryId) {
     document.getElementById('cal-entry-note').value  = entry.note || '';
     calUpdateEntryDur();
     openModal('cal-entry-modal');
+}
+
+function calGoToTask() {
+    closeModal('cal-entry-modal');
+    openEditTask(calEditTaskId);
 }
 
 function calUpdateEntryDur() {
