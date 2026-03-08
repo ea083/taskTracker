@@ -1717,6 +1717,38 @@
     </div>
 </div>
 
+<!-- Calendar Entry Edit Modal -->
+<div class="modal-overlay" id="cal-entry-modal" onclick="overlayClick(event,'cal-entry-modal')">
+    <div class="modal" style="max-width:380px">
+        <div class="modal-header">
+            <h2 id="cal-entry-modal-title" style="font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px"></h2>
+            <button class="close-btn" onclick="closeModal('cal-entry-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="cal-entry-start">Start</label>
+                <input type="datetime-local" id="cal-entry-start" oninput="calUpdateEntryDur()">
+            </div>
+            <div class="form-group">
+                <label for="cal-entry-end">End</label>
+                <input type="datetime-local" id="cal-entry-end" oninput="calUpdateEntryDur()">
+            </div>
+            <div id="cal-entry-dur-display" style="font-size:13px;color:var(--text-muted);margin:-4px 0 14px"></div>
+            <div class="form-group">
+                <label for="cal-entry-note">Note</label>
+                <input type="text" id="cal-entry-note" placeholder="Optional note" maxlength="200">
+            </div>
+        </div>
+        <div class="modal-footer" style="justify-content:space-between">
+            <button class="btn btn-ghost" style="color:#ef4444" onclick="calDeleteEntry()">Delete</button>
+            <div style="display:flex;gap:8px">
+                <button class="btn btn-ghost" onclick="closeModal('cal-entry-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="calSaveEntry()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Time Log Modal -->
 <div class="modal-overlay" id="time-modal" onclick="overlayClick(event,'time-modal')">
     <div class="modal">
@@ -3484,7 +3516,7 @@ function renderCalendar() {
             const durMs      = clippedEnd - entry.startTime;
 
             const topPx    = (startDate.getHours() + startDate.getMinutes() / 60 + startDate.getSeconds() / 3600) * calHourPx();
-            const heightPx = Math.max(2, (durMs / 3600000) * calHourPx());
+            const heightPx = Math.max(20, (durMs / 3600000) * calHourPx());
 
             const cat     = task.category ? state.categories.find(c => c.id === task.category) : null;
             const color   = cat ? cat.color : '#4f46e5';
@@ -3505,7 +3537,6 @@ function renderCalendar() {
             const leftStyle   = `calc(${leftPct.toFixed(4)}% + ${leftPad}px)`;
             const rightStyle  = `calc(${rightPct.toFixed(4)}% + ${rightPad}px)`;
 
-            const showHandles = heightPx >= 20;
             inner += `<div class="cal-entry${isDragging ? ' cal-dragging' : ''}"
                 style="top:${topPx.toFixed(1)}px;height:${heightPx.toFixed(1)}px;border-color:${color};background:${bg};left:${leftStyle};right:${rightStyle}"
                 data-entry-id="${entry.id}"
@@ -3514,9 +3545,9 @@ function renderCalendar() {
                 data-tip-dur="${tipDur}"
                 onmouseenter="calTooltipShow(event,this)"
                 onmouseleave="calTooltipHide()">
-                ${showHandles ? `<div class="cal-entry-handle-top" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','start')"></div>` : ''}
-                <div class="cal-entry-body" onclick="calEntryClick(event,'${task.id}')"></div>
-                ${showHandles ? `<div class="cal-entry-handle-bot" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','end')"></div>` : ''}
+                <div class="cal-entry-handle-top" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','start')"></div>
+                <div class="cal-entry-body" onclick="calEntryClick(event,'${task.id}','${entry.id}')"></div>
+                <div class="cal-entry-handle-bot" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','end')"></div>
             </div>`;
         });
 
@@ -3563,9 +3594,61 @@ function calTooltipHide() {
     }
 }
 
-function calEntryClick(e, taskId) {
+let calEditTaskId  = null;
+let calEditEntryId = null;
+
+function calEntryClick(e, taskId, entryId) {
     if (calDragged) return; // suppress click after a drag
-    openTaskDetail(taskId);
+    const task  = state.tasks.find(t => t.id === taskId);
+    const entry = task?.timeEntries.find(en => en.id === entryId);
+    if (!task || !entry) return;
+    calEditTaskId  = taskId;
+    calEditEntryId = entryId;
+    document.getElementById('cal-entry-modal-title').textContent = task.name;
+    document.getElementById('cal-entry-start').value = tsToDatetimeLocal(entry.startTime);
+    document.getElementById('cal-entry-end').value   = tsToDatetimeLocal(entry.endTime);
+    document.getElementById('cal-entry-note').value  = entry.note || '';
+    calUpdateEntryDur();
+    openModal('cal-entry-modal');
+}
+
+function calUpdateEntryDur() {
+    const s  = document.getElementById('cal-entry-start').value;
+    const e  = document.getElementById('cal-entry-end').value;
+    const el = document.getElementById('cal-entry-dur-display');
+    if (s && e) {
+        const ms = new Date(e) - new Date(s);
+        el.textContent = ms > 0 ? 'Duration: ' + fmtSecs(Math.round(ms / 1000)) : 'End must be after start';
+        el.style.color = ms > 0 ? 'var(--text-muted)' : '#ef4444';
+    } else {
+        el.textContent = '';
+    }
+}
+
+function calSaveEntry() {
+    const task  = state.tasks.find(t => t.id === calEditTaskId);
+    const entry = task?.timeEntries.find(en => en.id === calEditEntryId);
+    if (!task || !entry) return;
+    const sVal = document.getElementById('cal-entry-start').value;
+    const eVal = document.getElementById('cal-entry-end').value;
+    if (!sVal || !eVal) return;
+    const newStart = new Date(sVal).getTime();
+    const newEnd   = new Date(eVal).getTime();
+    if (newEnd <= newStart) return;
+    task.totalSeconds   = Math.max(0, (task.totalSeconds || 0) - (entry.duration || 0));
+    entry.startTime     = newStart;
+    entry.endTime       = newEnd;
+    entry.duration      = Math.round((newEnd - newStart) / 1000);
+    entry.note          = document.getElementById('cal-entry-note').value.trim() || null;
+    task.totalSeconds  += entry.duration;
+    save();
+    render();
+    closeModal('cal-entry-modal');
+}
+
+function calDeleteEntry() {
+    closeModal('cal-entry-modal');
+    deleteTimeEntry(calEditTaskId, calEditEntryId);
 }
 
 function calResizeStart(e, taskId, entryId, type) {
@@ -4287,7 +4370,7 @@ function handleSearch(v) { state.search = v; render(); }
 function setSort(v)       { state.sort = v; render(); }
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); closeModal('cat-modal'); closeModal('detail-modal'); }
+    if (e.key === 'Escape') { closeModal('task-modal'); closeModal('time-modal'); closeModal('cat-modal'); closeModal('detail-modal'); closeModal('cal-entry-modal'); }
     if (e.key === 'Enter' && document.getElementById('task-modal').classList.contains('visible')) {
         if (document.activeElement.tagName !== 'TEXTAREA') saveTask();
     }
