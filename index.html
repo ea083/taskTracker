@@ -875,8 +875,28 @@
             font-size: 15px;
             font-weight: 600;
             color: var(--text);
-            min-width: 220px;
+            min-width: 180px;
             text-align: center;
+        }
+        .cal-view-toggle {
+            display: flex;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .cal-view-toggle .btn {
+            border-radius: 0;
+            border: none;
+            padding: 4px 12px;
+            font-size: 13px;
+        }
+        .cal-view-toggle .btn + .btn {
+            border-left: 1px solid var(--border);
+        }
+        .cal-view-toggle .btn.active {
+            background: var(--primary);
+            color: #fff;
         }
         .cal-outer {
             display: flex;
@@ -1706,10 +1726,14 @@
     <!-- Calendar View — lives outside <main> so it is not width-constrained -->
     <div id="calendar-view" style="display:none; padding:0 20px 28px;">
         <div class="cal-toolbar">
-            <button class="btn btn-ghost btn-sm" onclick="calNavWeek(-1)">&#8592; Prev</button>
+            <button class="btn btn-ghost btn-sm" onclick="calNavPrev()">&#8592; Prev</button>
             <span class="cal-week-label" id="cal-week-label"></span>
-            <button class="btn btn-ghost btn-sm" onclick="calNavWeek(1)">Next &#8594;</button>
-            <button class="btn btn-ghost btn-sm" onclick="calNavWeek(-state.calendarWeekOffset)">Today</button>
+            <button class="btn btn-ghost btn-sm" onclick="calNavNext()">Next &#8594;</button>
+            <button class="btn btn-ghost btn-sm" onclick="calNavToday()">Today</button>
+            <div class="cal-view-toggle">
+                <button id="cal-mode-week" class="btn btn-sm" onclick="setCalMode('week')">Week</button>
+                <button id="cal-mode-day"  class="btn btn-sm" onclick="setCalMode('day')">Day</button>
+            </div>
             <div class="cal-zoom-controls">
                 <button class="btn btn-ghost btn-sm" onclick="calZoom(-1)" title="Zoom out">&#x2212;</button>
                 <span class="cal-zoom-label" id="cal-zoom-label"></span>
@@ -1943,6 +1967,8 @@ const state = {
     collapsedGroups:      new Set(), // category group ids collapsed in list view ('' = uncategorized)
     collapsedWeeks:       new Set(), // week keys (Monday YYYY-MM-DD) collapsed in board view
     calendarWeekOffset:   0,         // 0 = current week, -1 = last week, etc.
+    calendarDayOffset:    0,         // 0 = today, +1 = tomorrow, etc. (day mode only)
+    calendarMode:         'week',    // 'week' | 'day'
     dailyTasks:           [],        // [{ id, name }] repeating calendar checklist items
     dailyDone:            {},        // { "YYYY-MM-DD": { taskId: true } }
 };
@@ -2167,6 +2193,15 @@ function initDatabase() {
                 syncActiveTimer(_pendingTimerSync);
                 _pendingTimerSync = undefined;
             }
+            try {
+                // Restore calendar mode (or default to day on mobile)
+                const savedCalMode = localStorage.getItem('tt_cal_mode');
+                if (savedCalMode === 'week' || savedCalMode === 'day') {
+                    state.calendarMode = savedCalMode;
+                } else if (window.innerWidth < 640) {
+                    state.calendarMode = 'day';
+                }
+            } catch(e) {}
             try {
                 // Restore chart range before init so it builds the right data
                 const savedRange = localStorage.getItem('tt_chart_range');
@@ -3552,8 +3587,47 @@ function calLayoutEntries(items) {
     return sorted;
 }
 
-function calNavWeek(delta) {
-    state.calendarWeekOffset += delta;
+function calNavPrev() {
+    if (state.calendarMode === 'day') state.calendarDayOffset--;
+    else state.calendarWeekOffset--;
+    renderCalendar();
+}
+
+function calNavNext() {
+    if (state.calendarMode === 'day') state.calendarDayOffset++;
+    else state.calendarWeekOffset++;
+    renderCalendar();
+}
+
+function calNavToday() {
+    state.calendarDayOffset  = 0;
+    state.calendarWeekOffset = 0;
+    renderCalendar();
+}
+
+function setCalMode(mode) {
+    if (state.calendarMode === mode) return;
+    // Sync position: carry the approximate current date across modes
+    if (mode === 'day') {
+        // Switch to the Monday of the current week offset as the starting day
+        const today = new Date();
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay() + state.calendarWeekOffset * 7);
+        state.calendarDayOffset = Math.round((weekStart - today) / 86400000);
+    } else {
+        // Switch to the week that contains the current day offset
+        const msOffset = state.calendarDayOffset * 86400000;
+        const targetDate = new Date(Date.now() + msOffset);
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        const todaySunday = new Date(todayMidnight);
+        todaySunday.setDate(todayMidnight.getDate() - todayMidnight.getDay());
+        const targetSunday = new Date(targetDate);
+        targetSunday.setDate(targetDate.getDate() - targetDate.getDay());
+        state.calendarWeekOffset = Math.round((targetSunday - todaySunday) / (7 * 86400000));
+    }
+    state.calendarMode = mode;
+    localStorage.setItem('tt_cal_mode', mode);
     renderCalendar();
 }
 
@@ -3617,25 +3691,40 @@ function renderCalendar() {
     today.setHours(0, 0, 0, 0);
     const todayStr = localDateStr(today);
 
-    // Week starts on Sunday
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay() + state.calendarWeekOffset * 7);
+    // Build days array based on mode
+    let days;
+    if (state.calendarMode === 'day') {
+        const d = new Date(today);
+        d.setDate(today.getDate() + state.calendarDayOffset);
+        days = [d];
+    } else {
+        // Week starts on Sunday
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay() + state.calendarWeekOffset * 7);
+        days = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(weekStart);
+            d.setDate(weekStart.getDate() + i);
+            return d;
+        });
+    }
 
-    const days = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(weekStart);
-        d.setDate(weekStart.getDate() + i);
-        return d;
-    });
-
-    // Week label
+    // Label
     const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     const labelEl = document.getElementById('cal-week-label');
     if (labelEl) {
-        const sameYear = days[0].getFullYear() === days[6].getFullYear();
-        labelEl.textContent = sameYear
-            ? `${fmt(days[0])} – ${fmt(days[6])}, ${days[0].getFullYear()}`
-            : `${fmt(days[0])}, ${days[0].getFullYear()} – ${fmt(days[6])}, ${days[6].getFullYear()}`;
+        if (state.calendarMode === 'day') {
+            labelEl.textContent = days[0].toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        } else {
+            const sameYear = days[0].getFullYear() === days[6].getFullYear();
+            labelEl.textContent = sameYear
+                ? `${fmt(days[0])} – ${fmt(days[6])}, ${days[0].getFullYear()}`
+                : `${fmt(days[0])}, ${days[0].getFullYear()} – ${fmt(days[6])}, ${days[6].getFullYear()}`;
+        }
     }
+
+    // Update mode toggle active state
+    document.getElementById('cal-mode-week')?.classList.toggle('active', state.calendarMode === 'week');
+    document.getElementById('cal-mode-day')?.classList.toggle('active', state.calendarMode === 'day');
 
     // Zoom label + button state
     const zoomLabelEl = document.getElementById('cal-zoom-label');
