@@ -2094,6 +2094,11 @@ function showApp(user) {
         saved.forEach(id => state.boardHiddenCategories.add(id));
         updateBoardFilterBtnState('board-cat-filter-btn', state.boardHiddenCategories.size > 0);
     } catch(e) {}
+    // Restore collapsed weeks
+    try {
+        const saved = JSON.parse(localStorage.getItem('tt_collapsed_weeks') || '[]');
+        saved.forEach(k => state.collapsedWeeks.add(k));
+    } catch(e) {}
     // Restore list view status filter
     try {
         const saved = JSON.parse(localStorage.getItem('tt_list_st') || '[]');
@@ -4217,6 +4222,7 @@ function toggleWeekCollapse(weekKey) {
     } else {
         state.collapsedWeeks.add(weekKey);
     }
+    localStorage.setItem('tt_collapsed_weeks', JSON.stringify([...state.collapsedWeeks]));
     renderBoard();
 }
 
