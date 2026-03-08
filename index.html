@@ -1038,6 +1038,28 @@
             height: 100%;
             overflow: hidden;
             cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            gap: 1px;
+        }
+        .cal-entry-name {
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: inherit;
+            opacity: 0.9;
+        }
+        .cal-entry-time {
+            font-size: 10px;
+            line-height: 1.2;
+            opacity: 0.7;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .cal-zoom-controls {
             display: flex;
@@ -3666,6 +3688,13 @@ function renderCalendar() {
             const leftStyle   = `calc(${leftPct.toFixed(4)}% + ${leftPad}px)`;
             const rightStyle  = `calc(${rightPct.toFixed(4)}% + ${rightPad}px)`;
 
+            const showName = heightPx >= 28;
+            const showTime = heightPx >= 48;
+            const entryLabel = showName
+                ? `<span class="cal-entry-name">${esc(task.name)}</span>` +
+                  (showTime ? `<span class="cal-entry-time">${tipTime}</span>` : '')
+                : '';
+
             inner += `<div class="cal-entry${isDragging ? ' cal-dragging' : ''}"
                 style="top:${topPx.toFixed(1)}px;height:${heightPx.toFixed(1)}px;border-color:${color};background:${bg};left:${leftStyle};right:${rightStyle}"
                 data-entry-id="${entry.id}"
@@ -3675,7 +3704,7 @@ function renderCalendar() {
                 onmouseenter="calTooltipShow(event,this)"
                 onmouseleave="calTooltipHide()">
                 <div class="cal-entry-handle-top" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','start')"></div>
-                <div class="cal-entry-body" onclick="calEntryClick(event,'${task.id}','${entry.id}')"></div>
+                <div class="cal-entry-body" onclick="calEntryClick(event,'${task.id}','${entry.id}')">${entryLabel}</div>
                 <div class="cal-entry-handle-bot" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','end')"></div>
             </div>`;
         });
