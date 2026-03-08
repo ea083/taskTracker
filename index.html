@@ -3203,7 +3203,7 @@ function toggleDarkMode() {
 })();
 
 // ── Calendar View ──────────────────────────────
-const CAL_ZOOM_LEVELS = [32, 48, 64, 80, 100, 120, 150, 180, 240, 320]; // pixels per hour options
+const CAL_ZOOM_LEVELS = [32, 48, 64, 80, 100, 120, 150, 180, 240, 320, 400, 500, 640, 800]; // pixels per hour options
 let   calZoomIdx      = 2;  // default: 64px/hr
 const CAL_SNAP_MINS   = 5;  // drag snaps to 5-minute intervals
 
@@ -3464,6 +3464,7 @@ function renderCalendar() {
             const leftStyle   = `calc(${leftPct.toFixed(4)}% + ${leftPad}px)`;
             const rightStyle  = `calc(${rightPct.toFixed(4)}% + ${rightPad}px)`;
 
+            const showHandles = heightPx >= 20;
             inner += `<div class="cal-entry${isDragging ? ' cal-dragging' : ''}"
                 style="top:${topPx.toFixed(1)}px;height:${heightPx.toFixed(1)}px;border-color:${color};background:${bg};left:${leftStyle};right:${rightStyle}"
                 data-entry-id="${entry.id}"
@@ -3472,11 +3473,9 @@ function renderCalendar() {
                 data-tip-dur="${tipDur}"
                 onmouseenter="calTooltipShow(event,this)"
                 onmouseleave="calTooltipHide()">
-                <div class="cal-entry-handle-top"
-                     onmousedown="calResizeStart(event,'${task.id}','${entry.id}','start')"></div>
+                ${showHandles ? `<div class="cal-entry-handle-top" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','start')"></div>` : ''}
                 <div class="cal-entry-body" onclick="calEntryClick(event,'${task.id}')"></div>
-                <div class="cal-entry-handle-bot"
-                     onmousedown="calResizeStart(event,'${task.id}','${entry.id}','end')"></div>
+                ${showHandles ? `<div class="cal-entry-handle-bot" onmousedown="calResizeStart(event,'${task.id}','${entry.id}','end')"></div>` : ''}
             </div>`;
         });
 
