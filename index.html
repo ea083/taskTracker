@@ -3358,11 +3358,19 @@ function initChart() {
                 tooltip: {
                     callbacks: {
                         title: items => chartTooltipTitle(items),
-                        label: item  => ` ${item.parsed.y}h`,
+                        label: item  => ` ${item.dataset.label}: ${Math.round(item.parsed.y * 10) / 10}h`,
+                        footer: items => {
+                            if (items.length <= 1) return '';
+                            const total = items.reduce((sum, i) => sum + (i.parsed.y || 0), 0);
+                            return `Total: ${Math.round(total * 10) / 10}h`;
+                        },
                     },
                     backgroundColor: '#1f2937',
                     titleColor: '#f9fafb',
                     bodyColor: '#d1d5db',
+                    footerColor: '#f9fafb',
+                    footerFont: { weight: 'bold', size: 12 },
+                    footerMarginTop: 6,
                     padding: 10,
                     cornerRadius: 8,
                 }
