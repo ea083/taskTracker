@@ -1344,6 +1344,21 @@
         .kanban-week.is-collapsed .kanban-week-chevron {
             transform: rotate(-90deg);
         }
+        .kanban-week-stack {
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            gap: 3px;
+            min-width: 180px;
+        }
+        .kanban-week-stack .kanban-week {
+            align-items: stretch;
+        }
+        .kanban-week-stack .kanban-week-tab {
+            margin-left: 0;
+            border-radius: 5px;
+            border-bottom: 1px solid var(--border);
+        }
         .kanban-gap {
             display: flex;
             flex-direction: column;
@@ -4098,50 +4113,34 @@ function renderBoard() {
         }
     }
 
-    // Build HTML: week groups (with cross-week gap indicators) then unscheduled
+    // Build HTML: week groups (stacking consecutive collapsed ones) then unscheduled
     let boardHtml = '';
-    for (let wi = 0; wi < weekGroups.length; wi++) {
-        const group = weekGroups[wi];
-
-        // Gap between the previous week group and this one
+    let wi = 0;
+    while (wi < weekGroups.length) {
+        // Gap before this group vs the previous one
         if (wi > 0) {
             const prevEntries = weekGroups[wi - 1].entries;
             const prevLastDate = prevEntries[prevEntries.length - 1].date;
-            const curFirstDate = group.entries[0].date;
+            const curFirstDate = weekGroups[wi].entries[0].date;
             const gap = Math.round(
                 (new Date(curFirstDate + 'T00:00:00') - new Date(prevLastDate + 'T00:00:00')) / 86400000
             ) - 1;
             if (gap > 0) boardHtml += kanbanGapHtml(gap);
         }
 
-        // Week tab label: "Week of Mon D"
-        const weekMon = new Date(group.weekKey + 'T00:00:00');
-        const weekLabel = weekMon.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-
-        // Intra-week columns with gap indicators between non-consecutive days
-        let innerHtml = '';
-        let weekTaskCount = 0;
-        for (let ei = 0; ei < group.entries.length; ei++) {
-            const { date, tasks } = group.entries[ei];
-            weekTaskCount += tasks.length;
-            if (ei > 0) {
-                const prevDate = group.entries[ei - 1].date;
-                const gap = Math.round(
-                    (new Date(date + 'T00:00:00') - new Date(prevDate + 'T00:00:00')) / 86400000
-                ) - 1;
-                if (gap > 0) innerHtml += kanbanGapHtml(gap);
-            }
-            innerHtml += kanbanColHtml(date, tasks, todayStr);
+        if (state.collapsedWeeks.has(weekGroups[wi].weekKey)) {
+            // Collect the full run of consecutive collapsed weeks
+            const runStart = wi;
+            while (wi < weekGroups.length && state.collapsedWeeks.has(weekGroups[wi].weekKey)) wi++;
+            const run = weekGroups.slice(runStart, wi);
+            const items = run.map(g => singleWeekHtml(g, todayStr)).join('');
+            boardHtml += run.length > 1
+                ? `<div class="kanban-week-stack">${items}</div>`
+                : items;
+        } else {
+            boardHtml += singleWeekHtml(weekGroups[wi], todayStr);
+            wi++;
         }
-
-        const isCollapsed = state.collapsedWeeks.has(group.weekKey);
-        const taskWord = weekTaskCount === 1 ? 'task' : 'tasks';
-        boardHtml += `<div class="kanban-week${isCollapsed ? ' is-collapsed' : ''}" data-week-key="${group.weekKey}">
-            <div class="kanban-week-tab" onclick="toggleWeekCollapse('${group.weekKey}')">
-                <span class="kanban-week-chevron">▾</span>Week of ${weekLabel}<span class="kanban-week-count">· ${weekTaskCount} ${taskWord}</span>
-            </div>
-            <div class="kanban-week-body">${innerHtml}</div>
-        </div>`;
     }
     boardHtml += kanbanColHtml(null, unscheduled, todayStr);
     scroll.innerHTML = boardHtml;
@@ -4169,16 +4168,40 @@ function kanbanGapHtml(hiddenDays) {
     </div>`;
 }
 
+function singleWeekHtml(group, todayStr) {
+    const weekMon = new Date(group.weekKey + 'T00:00:00');
+    const weekLabel = weekMon.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    let innerHtml = '';
+    let weekTaskCount = 0;
+    for (let ei = 0; ei < group.entries.length; ei++) {
+        const { date, tasks } = group.entries[ei];
+        weekTaskCount += tasks.length;
+        if (ei > 0) {
+            const prevDate = group.entries[ei - 1].date;
+            const gap = Math.round(
+                (new Date(date + 'T00:00:00') - new Date(prevDate + 'T00:00:00')) / 86400000
+            ) - 1;
+            if (gap > 0) innerHtml += kanbanGapHtml(gap);
+        }
+        innerHtml += kanbanColHtml(date, tasks, todayStr);
+    }
+    const isCollapsed = state.collapsedWeeks.has(group.weekKey);
+    const taskWord = weekTaskCount === 1 ? 'task' : 'tasks';
+    return `<div class="kanban-week${isCollapsed ? ' is-collapsed' : ''}" data-week-key="${group.weekKey}">
+        <div class="kanban-week-tab" onclick="toggleWeekCollapse('${group.weekKey}')">
+            <span class="kanban-week-chevron">▾</span>Week of ${weekLabel}<span class="kanban-week-count">· ${weekTaskCount} ${taskWord}</span>
+        </div>
+        <div class="kanban-week-body">${innerHtml}</div>
+    </div>`;
+}
+
 function toggleWeekCollapse(weekKey) {
     if (state.collapsedWeeks.has(weekKey)) {
         state.collapsedWeeks.delete(weekKey);
     } else {
         state.collapsedWeeks.add(weekKey);
     }
-    const weekEl = document.querySelector(`.kanban-week[data-week-key="${weekKey}"]`);
-    if (!weekEl) return;
-    const collapsed = state.collapsedWeeks.has(weekKey);
-    weekEl.classList.toggle('is-collapsed', collapsed);
+    renderBoard();
 }
 
 // ── Kanban Subtask Tooltip ─────────────────────
