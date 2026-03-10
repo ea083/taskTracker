@@ -314,22 +314,22 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   font-size: 0.97rem;
 }
 
-/* ── Markdown preview styles ──────────────────────────────── */
-#preview h1,#preview h2,#preview h3,
-#preview h4,#preview h5,#preview h6 {
+/* ── Markdown typography — shared by #preview and .live-rendered ─ */
+.prose h1,.prose h2,.prose h3,
+.prose h4,.prose h5,.prose h6 {
   color: var(--text);
   margin: 1.2em 0 0.5em;
   line-height: 1.3;
 }
-#preview h1 { font-size: 1.8rem; border-bottom: 2px solid var(--border); padding-bottom: 0.3em; }
-#preview h2 { font-size: 1.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
-#preview h3 { font-size: 1.15rem; }
-#preview p  { margin: 0.7em 0; }
-#preview a  { color: var(--accent-h); text-decoration: underline; }
-#preview a:hover { color: #fff; }
-#preview ul, #preview ol { margin: 0.6em 0 0.6em 1.4em; }
-#preview li { margin: 0.25em 0; }
-#preview blockquote {
+.prose h1 { font-size: 1.8rem; border-bottom: 2px solid var(--border); padding-bottom: 0.3em; }
+.prose h2 { font-size: 1.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.prose h3 { font-size: 1.15rem; }
+.prose p  { margin: 0.7em 0; }
+.prose a  { color: var(--accent-h); text-decoration: underline; }
+.prose a:hover { color: #fff; }
+.prose ul, .prose ol { margin: 0.6em 0 0.6em 1.4em; }
+.prose li { margin: 0.25em 0; }
+.prose blockquote {
   border-left: 3px solid var(--accent);
   margin: 0.8em 0;
   padding: 0.4em 1em;
@@ -337,7 +337,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   background: var(--surface);
   border-radius: 0 var(--radius) var(--radius) 0;
 }
-#preview code {
+.prose code {
   background: var(--surface2);
   color: var(--accent-h);
   padding: 0.15em 0.4em;
@@ -345,7 +345,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   font-family: var(--mono);
   font-size: 0.88em;
 }
-#preview pre {
+.prose pre {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -353,31 +353,31 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   overflow-x: auto;
   margin: 1em 0;
 }
-#preview pre code {
+.prose pre code {
   background: none;
   padding: 0;
   color: var(--text);
   font-size: 0.9em;
 }
-#preview table {
+.prose table {
   border-collapse: collapse;
   width: 100%;
   margin: 1em 0;
 }
-#preview th, #preview td {
+.prose th, .prose td {
   border: 1px solid var(--border);
   padding: 8px 12px;
   text-align: left;
 }
-#preview th { background: var(--surface2); font-weight: 600; }
-#preview tr:hover td { background: var(--surface); }
-#preview hr {
+.prose th { background: var(--surface2); font-weight: 600; }
+.prose tr:hover td { background: var(--surface); }
+.prose hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 1.5em 0;
 }
-#preview img { max-width: 100%; border-radius: var(--radius); }
-#preview input[type="checkbox"] { margin-right: 6px; }
+.prose img { max-width: 100%; border-radius: var(--radius); }
+.prose input[type="checkbox"] { margin-right: 6px; }
 
 /* Title rendered at top of preview */
 .preview-note-title {
@@ -452,6 +452,48 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #editor-wrap.split #preview {
   border-left: none;
   background: var(--bg);
+}
+
+/* ── Live (WYSIWYG) mode pane ─────────────────────────────── */
+#live-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px;
+  line-height: 1.75;
+  font-size: 0.97rem;
+  outline: none;
+  cursor: text;
+}
+
+.live-block {
+  border-radius: 6px;
+  margin: 1px 0;
+  min-height: 1.6em;
+  transition: background 0.08s;
+}
+
+.live-block.rendered:hover {
+  background: rgba(124, 106, 247, 0.07);
+}
+
+/* Textarea that appears when a block is being edited */
+.live-ta {
+  display: block;
+  width: 100%;
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+  resize: none;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  tab-size: 4;
+  overflow: hidden;
+  padding: 8px 10px;
+  min-height: 2em;
+  box-shadow: 0 0 0 3px rgba(124,106,247,0.15);
 }
 
 /* ── Empty state ──────────────────────────────────────────── */
@@ -752,7 +794,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 
 /* ── Folder icon smaller ──────────────────────────────────── */
 .folder-arrow {
-  font-size: 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 700;
   width: 10px;
   flex-shrink: 0;
   color: inherit;
@@ -867,10 +910,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1px;
+  width: 2px;
   background: var(--border);
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.65;
+  border-radius: 1px;
 }
 
 /* ── Dragging item ────────────────────────────────────────── */
