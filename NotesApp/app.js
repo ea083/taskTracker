@@ -19,6 +19,14 @@ let expandedFolders = new Set(); // folders open in sidebar
 let currentFolder   = '';        // folder where new notes/folders are created
 let modalMode       = 'rename';  // 'rename' | 'folder'
 
+/* ── Context menu state ─────────────────────────────────────── */
+let ctxTarget       = null;   // { type: 'note'|'folder', path }
+let ctxRenamePath   = null;   // path being renamed via context menu
+
+/* ── Drag-and-drop state ────────────────────────────────────── */
+let dragItem        = null;   // { type: 'note'|'folder', path, depth }
+let dropInfo        = null;   // { folder: string, depth: number, insertBefore: Element|null }
+
 /* ── DOM refs ──────────────────────────────────────────────── */
 const $sidebar        = document.getElementById('sidebar');
 const $noteList       = document.getElementById('note-list');
@@ -65,6 +73,9 @@ const $moveNoteName = document.getElementById('move-note-name');
 const $moveSelect   = document.getElementById('move-select');
 const $moveCancel   = document.getElementById('move-cancel');
 const $moveConfirm  = document.getElementById('move-confirm');
+/* Context menu + drop bar */
+const $ctxMenu      = document.getElementById('ctx-menu');
+const $dropBar      = document.getElementById('drop-bar');
 
 /* ── Status bar ────────────────────────────────────────────── */
 let statusTimer = null;
@@ -190,6 +201,15 @@ function renderLevel(parentPath, depth, folders) {
   childNotes.forEach(n => appendNoteItem(n, depth, false));
 }
 
+function addTreeGuides(li, depth) {
+  for (let d = 0; d < depth; d++) {
+    const guide = document.createElement('span');
+    guide.className    = 'tree-guide';
+    guide.style.left   = `${15 + d * 14}px`;
+    li.appendChild(guide);
+  }
+}
+
 function appendFolderItem(folderPath, depth) {
   const name       = folderPath.split('/').pop();
   const isExpanded = expandedFolders.has(folderPath);
@@ -198,6 +218,12 @@ function appendFolderItem(folderPath, depth) {
   const li = document.createElement('li');
   li.className         = 'folder-item' + (isActive ? ' active-folder' : '');
   li.style.paddingLeft = `${10 + depth * 14}px`;
+  li.dataset.path      = folderPath;
+  li.dataset.depth     = String(depth);
+  li.dataset.type      = 'folder';
+  li.draggable         = true;
+
+  addTreeGuides(li, depth);
 
   const arrow = document.createElement('span');
   arrow.className   = 'folder-arrow';
@@ -213,14 +239,27 @@ function appendFolderItem(folderPath, depth) {
 
   li.append(arrow, icon, nameEl);
   li.addEventListener('click', () => toggleFolder(folderPath));
+  li.addEventListener('contextmenu', e => showCtxMenu(e, { type: 'folder', path: folderPath }));
+  li.addEventListener('dragstart', e => {
+    dragItem = { type: 'folder', path: folderPath, depth };
+    li.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', folderPath);
+  });
   $noteList.appendChild(li);
 }
 
 function appendNoteItem(note, depth, showFolderHint) {
   const li = document.createElement('li');
-  li.dataset.id        = note.path;
+  li.dataset.id     = note.path;
+  li.dataset.folder = noteFolder(note.path);
+  li.dataset.depth  = String(depth);
+  li.dataset.type   = 'note';
+  li.draggable      = true;
   li.style.paddingLeft = `${10 + depth * 14}px`;
   if (note.path === activeId) li.classList.add('active');
+
+  addTreeGuides(li, depth);
 
   const titleSpan       = document.createElement('span');
   titleSpan.textContent = note.title;
@@ -233,6 +272,13 @@ function appendNoteItem(note, depth, showFolderHint) {
 
   li.append(titleSpan, dateSpan);
   li.addEventListener('click', () => openNote(note.path));
+  li.addEventListener('contextmenu', e => showCtxMenu(e, { type: 'note', path: note.path }));
+  li.addEventListener('dragstart', e => {
+    dragItem = { type: 'note', path: note.path, depth };
+    li.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', note.path);
+  });
   $noteList.appendChild(li);
 }
 
@@ -528,6 +574,224 @@ async function confirmMove() {
   }
 }
 
+/* ── Context menu ───────────────────────────────────────────── */
+function hideCtxMenu() {
+  $ctxMenu.classList.add('hidden');
+  $ctxMenu.innerHTML = '';
+  ctxTarget = null;
+}
+
+function addCtxItem(label, isDanger, fn) {
+  const el = document.createElement('div');
+  el.className   = 'ctx-item' + (isDanger ? ' danger' : '');
+  el.textContent = label;
+  el.addEventListener('mousedown', e => { e.preventDefault(); });
+  el.addEventListener('click', () => { hideCtxMenu(); fn(); });
+  $ctxMenu.appendChild(el);
+}
+
+function addCtxSep() {
+  const el = document.createElement('div');
+  el.className = 'ctx-sep';
+  $ctxMenu.appendChild(el);
+}
+
+function showCtxMenu(e, target) {
+  e.preventDefault();
+  e.stopPropagation();
+  ctxTarget = target;
+  $ctxMenu.innerHTML = '';
+
+  if (target.type === 'folder') {
+    addCtxItem('New note here', false, () => {
+      currentFolder = target.path;
+      expandedFolders.add(target.path);
+      saveExpandedState();
+      createNote();
+    });
+    addCtxItem('New subfolder', false, () => {
+      currentFolder = target.path;
+      saveExpandedState();
+      openCreateFolderModal();
+    });
+    addCtxSep();
+    addCtxItem('Rename folder', false, () => {
+      ctxRenamePath = target.path;
+      modalMode     = 'rename-folder';
+      $modalLabel.textContent = 'Rename folder';
+      $modalInput.value       = target.path.split('/').pop();
+      $modalOverlay.classList.remove('hidden');
+      $modalInput.select();
+      $modalInput.focus();
+    });
+    addCtxSep();
+    addCtxItem('Delete folder', true, () => deleteFolder(target.path));
+  } else {
+    addCtxItem('Rename note', false, () => {
+      ctxRenamePath = target.path;
+      const note    = notes.find(n => n.path === target.path);
+      if (!note) return;
+      modalMode               = 'rename-note-ctx';
+      $modalLabel.textContent = 'Rename note';
+      $modalInput.value       = note.title;
+      $modalOverlay.classList.remove('hidden');
+      $modalInput.select();
+      $modalInput.focus();
+    });
+    addCtxItem('Move to…', false, () => openMoveModalForPath(target.path));
+    addCtxSep();
+    addCtxItem('Delete note', true, () => deleteNoteByPath(target.path));
+  }
+
+  /* Position */
+  $ctxMenu.classList.remove('hidden');
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const mw = $ctxMenu.offsetWidth, mh = $ctxMenu.offsetHeight;
+  let x = e.clientX, y = e.clientY;
+  if (x + mw > vw) x = vw - mw - 4;
+  if (y + mh > vh) y = vh - mh - 4;
+  $ctxMenu.style.left = x + 'px';
+  $ctxMenu.style.top  = y + 'px';
+}
+
+/* ── Delete / rename helpers for context menu ───────────────── */
+async function deleteNoteByPath(path) {
+  const note = notes.find(n => n.path === path);
+  if (!note) return;
+  if (!confirm(`Delete "${note.title}"? This cannot be undone.`)) return;
+
+  operationLock = true;
+  clearTimeout(saveTimer);
+  setStatus('Deleting…', false, true);
+  try {
+    await GH.deleteFile(note.path, note.sha, `Delete ${note.title}`);
+    GH.removeDate(note.path);
+    notes.splice(notes.findIndex(n => n.path === path), 1);
+    if (activeId === path) {
+      activeId = null;
+      if (notes.length > 0) {
+        operationLock = false;
+        const sorted = [...notes].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+        await openNote(sorted[0].path);
+      } else {
+        setEditorVisible(false);
+      }
+    }
+    renderList($search.value);
+    setStatus('Deleted');
+  } catch (err) {
+    setStatus(`Failed to delete: ${err.message}`, true);
+  } finally {
+    operationLock = false;
+  }
+}
+
+async function deleteFolder(folderPath) {
+  const childNotes = notes.filter(n => n.path === folderPath || n.path.startsWith(folderPath + '/'));
+  const childFolders = [...allFolderPaths()].filter(f => f === folderPath || f.startsWith(folderPath + '/'));
+  const noteCount = childNotes.length;
+  if (!confirm(`Delete folder "${folderPath.split('/').pop()}"${noteCount ? ` and its ${noteCount} note(s)` : ''}? This cannot be undone.`)) return;
+
+  operationLock = true;
+  setStatus('Deleting folder…', false, true);
+  try {
+    /* Delete .gitkeep files for all child folders */
+    for (const fp of childFolders) {
+      try { await GH.deleteFile(`${fp}/.gitkeep`, undefined, `Delete folder ${fp}`); } catch { /* may not exist */ }
+    }
+    /* Delete all notes inside */
+    for (const note of childNotes) {
+      await GH.deleteFile(note.path, note.sha, `Delete ${note.title}`);
+      GH.removeDate(note.path);
+    }
+    notes = notes.filter(n => !childNotes.includes(n));
+    childFolders.forEach(f => { knownFolders.delete(f); expandedFolders.delete(f); });
+    if (activeId && (activeId === folderPath || activeId.startsWith(folderPath + '/'))) {
+      activeId = null;
+      setEditorVisible(false);
+    }
+    if (currentFolder === folderPath || currentFolder.startsWith(folderPath + '/')) {
+      currentFolder = noteFolder(folderPath);
+    }
+    saveExpandedState();
+    renderList($search.value);
+    setStatus('Folder deleted');
+  } catch (err) {
+    setStatus(`Failed to delete folder: ${err.message}`, true);
+  } finally {
+    operationLock = false;
+  }
+}
+
+async function renameFolderTo(oldPath, newName) {
+  const clean = sanitizeFolderName(newName);
+  if (!clean || clean === oldPath.split('/').pop()) return;
+
+  const parentPath = noteFolder(oldPath);
+  const newPath    = parentPath ? `${parentPath}/${clean}` : clean;
+  if (allFolderPaths().has(newPath)) { setStatus('A folder with that name already exists', true); return; }
+
+  operationLock = true;
+  setStatus('Renaming folder…', false, true);
+  try {
+    const childNotes   = notes.filter(n => n.path.startsWith(oldPath + '/') || n.path === oldPath);
+    const childFolders = [...allFolderPaths()].filter(f => f === oldPath || f.startsWith(oldPath + '/'));
+
+    /* Move all notes */
+    for (const note of childNotes) {
+      const rel     = note.path.slice(oldPath.length);
+      const destPath = newPath + rel;
+      const { content } = await GH.getFile(note.path);
+      const { sha: newSha } = await GH.writeFile(destPath, content, null, `Move ${note.title}`);
+      await GH.deleteFile(note.path, note.sha, `Move ${note.title}`);
+      GH.removeDate(note.path);
+      const now    = new Date().toISOString();
+      note.path    = destPath;
+      note.sha     = newSha;
+      note.updatedAt = now;
+      GH.setDate(destPath, now);
+      if (activeId === note.path) activeId = destPath;
+    }
+
+    /* Update .gitkeep files */
+    for (const fp of childFolders) {
+      const destFp = newPath + fp.slice(oldPath.length);
+      try { await GH.writeFile(`${destFp}/.gitkeep`, '', null, `Rename folder`); } catch {}
+      try { await GH.deleteFile(`${fp}/.gitkeep`, undefined, `Rename folder`); } catch {}
+      knownFolders.delete(fp);
+      knownFolders.add(destFp);
+      if (expandedFolders.has(fp)) { expandedFolders.delete(fp); expandedFolders.add(destFp); }
+      if (currentFolder === fp) currentFolder = destFp;
+    }
+
+    if (activeId && activeId.startsWith(oldPath + '/')) {
+      activeId = newPath + activeId.slice(oldPath.length);
+      localStorage.setItem('gh_last_open', activeId);
+    }
+    saveExpandedState();
+    renderList($search.value);
+    setStatus('Folder renamed ✓');
+  } catch (err) {
+    setStatus(`Rename failed: ${err.message}`, true);
+  } finally {
+    operationLock = false;
+  }
+}
+
+/* ── Move modal for an arbitrary note path ──────────────────── */
+function openMoveModalForPath(path) {
+  const note = notes.find(n => n.path === path);
+  if (!note) return;
+  /* Temporarily override activeId for confirmMove */
+  const prevActive = activeId;
+  activeId = path;
+  openMoveModal();
+  /* Restore after modal closes handled by closeMoveModal */
+  if (prevActive !== path) {
+    /* We'll let confirmMove use activeId, which is now path */
+  }
+}
+
 /* ── Note modal (rename + new folder) ──────────────────────── */
 function openRenameModal() {
   if (mode !== 'edit' && mode !== 'split') {
@@ -565,6 +829,22 @@ function confirmModal() {
     $noteTitleInput.value = val;
     pendingTitle = true;
     commitTitleChange();
+  } else if (modalMode === 'rename-note-ctx') {
+    const note = notes.find(n => n.path === ctxRenamePath);
+    if (note) {
+      const prevActive = activeId;
+      activeId = note.path;
+      $noteTitleInput.value = val;
+      pendingTitle = true;
+      commitTitleChange().then(() => {
+        if (prevActive && prevActive !== note.path) activeId = prevActive;
+      });
+    }
+    ctxRenamePath = null;
+  } else if (modalMode === 'rename-folder') {
+    const path = ctxRenamePath;
+    ctxRenamePath = null;
+    renameFolderTo(path, val);
   } else {
     createFolder(val);
   }
@@ -688,6 +968,180 @@ function makeCollapsible() {
       heading.dataset.collapsed = isCollapsed ? 'false' : 'true';
       wrapper.classList.toggle('collapsed', !isCollapsed);
     });
+  });
+}
+
+/* ── Drag-and-drop ──────────────────────────────────────────── */
+function hideDropBar() {
+  $dropBar.style.display = 'none';
+  dropInfo = null;
+}
+
+function showDropBar(targetEl, targetDepth) {
+  const rect    = targetEl.getBoundingClientRect();
+  const listRect = $noteList.getBoundingClientRect();
+  const left    = listRect.left + 10 + targetDepth * 14;
+  const width   = Math.max(20, listRect.right - left - 6);
+  $dropBar.style.display = 'block';
+  $dropBar.style.top     = (rect.bottom - 1) + 'px';
+  $dropBar.style.left    = left + 'px';
+  $dropBar.style.width   = width + 'px';
+}
+
+function getItemDepth(li) {
+  return parseInt(li.dataset.depth || '0', 10);
+}
+
+/* Move a note to a target folder (used by drop) */
+async function dropMoveNote(notePath, targetFolder) {
+  const note = notes.find(n => n.path === notePath);
+  if (!note) return;
+  if (noteFolder(note.path) === targetFolder) return;
+
+  operationLock = true;
+  clearTimeout(saveTimer);
+  setStatus('Moving…', false, true);
+  try {
+    const baseName = note.path.split('/').pop();
+    let newPath    = targetFolder ? `${targetFolder}/${baseName}` : baseName;
+    let counter    = 1;
+    while (notes.some(n => n.path !== note.path && n.path === newPath)) {
+      const stem = baseName.slice(0, -3);
+      newPath    = targetFolder ? `${targetFolder}/${stem} ${counter++}.md` : `${stem} ${counter++}.md`;
+    }
+
+    /* Use editor content if this is the active note, otherwise fetch */
+    let content;
+    if (activeId === note.path) {
+      content = $editor.value;
+    } else {
+      const fetched = await GH.getFile(note.path);
+      content       = fetched.content;
+      note.sha      = fetched.sha;
+    }
+
+    const { sha: newSha } = await GH.writeFile(newPath, content, null, `Move ${note.title}`);
+    await GH.deleteFile(note.path, note.sha, `Move ${note.title}`);
+    GH.removeDate(note.path);
+    const now      = new Date().toISOString();
+    const oldPath  = note.path;
+    note.path      = newPath;
+    note.sha       = newSha;
+    note.updatedAt = now;
+    GH.setDate(newPath, now);
+    if (activeId === oldPath) {
+      activeId = newPath;
+      localStorage.setItem('gh_last_open', newPath);
+    }
+    if (targetFolder) expandedFolders.add(targetFolder);
+    renderList($search.value);
+    setStatus('Moved ✓');
+  } catch (err) {
+    setStatus(`Move failed: ${err.message}`, true);
+  } finally {
+    operationLock = false;
+  }
+}
+
+/* Move a folder tree to a new full destination path */
+async function moveFolderToPath(srcPath, destPath) {
+  if (destPath === srcPath) return;
+  if (destPath.startsWith(srcPath + '/')) { setStatus('Cannot move a folder into itself', true); return; }
+  if (allFolderPaths().has(destPath)) { setStatus('A folder with that name already exists there', true); return; }
+
+  operationLock = true;
+  setStatus('Moving folder…', false, true);
+  try {
+    const affectedFolders = [...allFolderPaths()].filter(f => f === srcPath || f.startsWith(srcPath + '/'));
+    const affectedNotes   = notes.filter(n => n.path.startsWith(srcPath + '/') || noteFolder(n.path) === srcPath);
+
+    for (const note of affectedNotes) {
+      const rel      = note.path.slice(srcPath.length);
+      const nDest    = destPath + rel;
+      const { content } = activeId === note.path
+        ? { content: $editor.value }
+        : await GH.getFile(note.path);
+      if (activeId !== note.path) { const f = await GH.getFile(note.path); note.sha = f.sha; }
+      const fetched   = await GH.getFile(note.path);
+      const { sha: newSha } = await GH.writeFile(nDest, fetched.content, null, `Move ${note.title}`);
+      await GH.deleteFile(note.path, fetched.sha, `Move ${note.title}`);
+      GH.removeDate(note.path);
+      const now    = new Date().toISOString();
+      const oldP   = note.path;
+      note.path    = nDest; note.sha = newSha; note.updatedAt = now;
+      GH.setDate(nDest, now);
+      if (activeId === oldP) { activeId = nDest; localStorage.setItem('gh_last_open', nDest); }
+    }
+
+    for (const fp of affectedFolders) {
+      const fDest = destPath + fp.slice(srcPath.length);
+      try { await GH.writeFile(`${fDest}/.gitkeep`, '', null, 'Move folder'); } catch {}
+      try { await GH.deleteFile(`${fp}/.gitkeep`, undefined, 'Move folder'); } catch {}
+      knownFolders.delete(fp); knownFolders.add(fDest);
+      if (expandedFolders.has(fp)) { expandedFolders.delete(fp); expandedFolders.add(fDest); }
+      if (currentFolder === fp || currentFolder.startsWith(fp + '/')) {
+        currentFolder = fDest + currentFolder.slice(fp.length);
+      }
+    }
+    saveExpandedState();
+    renderList($search.value);
+    setStatus('Folder moved ✓');
+  } catch (err) {
+    setStatus(`Move failed: ${err.message}`, true);
+    await init();
+  } finally {
+    operationLock = false;
+  }
+}
+
+function initDragAndDrop() {
+  $noteList.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!dragItem) return;
+
+    /* Find the li under the pointer */
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const li = el ? el.closest('#note-list li') : null;
+    if (!li) { hideDropBar(); return; }
+
+    const targetDepth  = getItemDepth(li);
+    const isFolder     = li.classList.contains('folder-item');
+    const targetFolder = isFolder ? li.dataset.path : (li.dataset.folder || '');
+
+    /* Prevent dropping folder onto itself or descendant */
+    if (dragItem.type === 'folder') {
+      if (targetFolder === dragItem.path || targetFolder.startsWith(dragItem.path + '/')) {
+        hideDropBar(); return;
+      }
+    }
+
+    dropInfo = { folder: targetFolder, depth: targetDepth };
+    showDropBar(li, targetDepth);
+  });
+
+  $noteList.addEventListener('dragleave', e => {
+    if (!$noteList.contains(e.relatedTarget)) hideDropBar();
+  });
+
+  $noteList.addEventListener('drop', async e => {
+    e.preventDefault();
+    if (!dragItem || !dropInfo) { hideDropBar(); return; }
+    const { folder } = dropInfo;
+    hideDropBar();
+    if (dragItem.type === 'note') {
+      await dropMoveNote(dragItem.path, folder);
+    } else {
+      const name    = dragItem.path.split('/').pop();
+      const destPath = folder ? `${folder}/${name}` : name;
+      if (destPath !== dragItem.path) await moveFolderToPath(dragItem.path, destPath);
+    }
+    dragItem = null;
+  });
+
+  document.addEventListener('dragend', () => {
+    hideDropBar();
+    document.querySelectorAll('#note-list li.dragging').forEach(el => el.classList.remove('dragging'));
+    dragItem = null;
   });
 }
 
@@ -821,7 +1275,7 @@ document.addEventListener('keydown', e => {
   if (mod && e.key === 'r') { e.preventDefault(); if (activeId) openRenameModal(); }
   if (mod && e.key === ',') { e.preventDefault(); showSettings(); }
   if (mod && e.shiftKey && e.key === 'B') { e.preventDefault(); toggleSidebar(); }
-  if (e.key === 'Escape') { hideSettings(); closeModal(); closeMoveModal(); }
+  if (e.key === 'Escape') { hideSettings(); closeModal(); closeMoveModal(); hideCtxMenu(); }
   if (e.key === 'Enter' && !$modalOverlay.classList.contains('hidden')) {
     e.preventDefault(); confirmModal();
   }
@@ -893,6 +1347,18 @@ $moveConfirm.addEventListener('click', confirmMove);
 $moveOverlay.addEventListener('click', e => {
   if (e.target === $moveOverlay) closeMoveModal();
 });
+
+/* Dismiss context menu on outside click */
+document.addEventListener('click', e => {
+  if (!$ctxMenu.contains(e.target)) hideCtxMenu();
+});
+document.addEventListener('contextmenu', e => {
+  /* Hide menu if clicking outside a list item */
+  if (!e.target.closest('#note-list li')) hideCtxMenu();
+});
+
+/* Init drag-and-drop listeners */
+initDragAndDrop();
 
 /* ── Boot ───────────────────────────────────────────────────── */
 async function init() {
