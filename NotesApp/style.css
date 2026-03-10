@@ -124,13 +124,15 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 }
 
 #note-list li {
-  padding: 9px 10px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
   border-radius: var(--radius);
   cursor: pointer;
   font-size: 0.88rem;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--text);
   transition: background 0.1s;
   position: relative;
@@ -143,17 +145,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   color: #fff;
 }
 
-#note-list li .note-date {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-#note-list li.active .note-date { color: rgba(255,255,255,0.7); }
+/* Date hidden in the list — shown only in hover tooltip */
+#note-list li .note-date { display: none; }
 
 /* ── Main ─────────────────────────────────────────────────── */
 #main {
@@ -707,9 +700,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   display: flex;
   align-items: center;
   gap: 5px;
-  padding-top: 7px;
-  padding-bottom: 7px;
-  padding-right: 10px;
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-muted);
@@ -720,14 +710,55 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #note-list .folder-item:hover { background: var(--surface2); color: var(--text); }
 #note-list .folder-item.active-folder { background: var(--surface2); color: var(--accent); }
 
+/* ── Note title in sidebar ────────────────────────────────── */
+.note-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ── Note spacer — aligns note title with parent folder name ─ */
+.note-spacer { width: 20px; flex-shrink: 0; }
+
+/* ── Note date tooltip ────────────────────────────────────── */
+#note-tooltip {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 800;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+
+/* ── Sidebar resizer ──────────────────────────────────────── */
+#sidebar-resizer {
+  width: 4px;
+  min-width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  z-index: 10;
+}
+#sidebar-resizer:hover,
+#sidebar-resizer.dragging { background: var(--accent); }
+
+/* ── Folder icon smaller ──────────────────────────────────── */
 .folder-arrow {
   font-size: 0.65rem;
   width: 10px;
   flex-shrink: 0;
   color: inherit;
 }
-.folder-icon  { font-size: 0.8rem; flex-shrink: 0; }
-.folder-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-icon  { font-size: 0.72rem; width: 14px; text-align: center; flex-shrink: 0; }
+.folder-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* ── Move modal ───────────────────────────────────────────── */
 #move-overlay {

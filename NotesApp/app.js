@@ -73,9 +73,11 @@ const $moveNoteName = document.getElementById('move-note-name');
 const $moveSelect   = document.getElementById('move-select');
 const $moveCancel   = document.getElementById('move-cancel');
 const $moveConfirm  = document.getElementById('move-confirm');
-/* Context menu + drop bar */
+/* Context menu + drop bar + tooltip */
 const $ctxMenu      = document.getElementById('ctx-menu');
 const $dropBar      = document.getElementById('drop-bar');
+const $noteTooltip  = document.getElementById('note-tooltip');
+const $sidebarResizer = document.getElementById('sidebar-resizer');
 
 /* ── Status bar ────────────────────────────────────────────── */
 let statusTimer = null;
@@ -261,7 +263,12 @@ function appendNoteItem(note, depth, showFolderHint) {
 
   addTreeGuides(li, depth);
 
+  /* Spacer aligns note title with parent folder's name text */
+  const spacer = document.createElement('span');
+  spacer.className = 'note-spacer';
+
   const titleSpan       = document.createElement('span');
+  titleSpan.className   = 'note-title';
   titleSpan.textContent = note.title;
 
   const dateSpan     = document.createElement('span');
@@ -270,9 +277,11 @@ function appendNoteItem(note, depth, showFolderHint) {
     ? noteFolder(note.path) + '  ·  ' : '';
   dateSpan.textContent = folderHint + formatDate(note.updatedAt);
 
-  li.append(titleSpan, dateSpan);
+  li.append(spacer, titleSpan, dateSpan);
   li.addEventListener('click', () => openNote(note.path));
   li.addEventListener('contextmenu', e => showCtxMenu(e, { type: 'note', path: note.path }));
+  li.addEventListener('mouseenter', () => showNoteTooltip(li, dateSpan.textContent));
+  li.addEventListener('mouseleave', hideNoteTooltip);
   li.addEventListener('dragstart', e => {
     dragItem = { type: 'note', path: note.path, depth };
     li.classList.add('dragging');
@@ -1260,6 +1269,65 @@ function handleEditorEnter(e) {
     onEditorInput();
   }
 }
+
+/* ── Note date tooltip ──────────────────────────────────────── */
+function showNoteTooltip(li, text) {
+  if (!text) return;
+  $noteTooltip.textContent = text;
+  $noteTooltip.classList.remove('hidden');
+  const rect = li.getBoundingClientRect();
+  const tw   = $noteTooltip.offsetWidth;
+  const th   = $noteTooltip.offsetHeight;
+  let x = rect.left;
+  let y = rect.bottom + 4;
+  if (y + th > window.innerHeight) y = rect.top - th - 4;
+  if (x + tw > window.innerWidth)  x = window.innerWidth - tw - 6;
+  $noteTooltip.style.left = x + 'px';
+  $noteTooltip.style.top  = y + 'px';
+}
+
+function hideNoteTooltip() {
+  $noteTooltip.classList.add('hidden');
+}
+
+/* ── Sidebar resize ─────────────────────────────────────────── */
+(function initSidebarResize() {
+  let dragging = false, startX = 0, startW = 0;
+
+  function loadWidth() {
+    const w = localStorage.getItem('gh_sidebar_w');
+    if (w) { $sidebar.style.width = w + 'px'; $sidebar.style.minWidth = w + 'px'; }
+  }
+  loadWidth();
+
+  $sidebarResizer.addEventListener('mousedown', e => {
+    if ($sidebar.classList.contains('collapsed')) return;
+    dragging = true;
+    startX   = e.clientX;
+    startW   = $sidebar.getBoundingClientRect().width;
+    $sidebarResizer.classList.add('dragging');
+    $sidebar.style.transition = 'none';
+    document.body.style.cursor     = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const newW = Math.max(160, Math.min(520, startW + e.clientX - startX));
+    $sidebar.style.width    = newW + 'px';
+    $sidebar.style.minWidth = newW + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    $sidebarResizer.classList.remove('dragging');
+    $sidebar.style.transition   = '';
+    document.body.style.cursor     = '';
+    document.body.style.userSelect = '';
+    localStorage.setItem('gh_sidebar_w', parseInt($sidebar.style.width, 10));
+  });
+})();
 
 /* ── Sidebar toggle ─────────────────────────────────────────── */
 function toggleSidebar() { $sidebar.classList.toggle('collapsed'); }
