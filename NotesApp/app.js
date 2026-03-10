@@ -1282,57 +1282,121 @@ function renderLiveBlock(block) {
 
 function deactivateCurrentLiveBlock() {
   if (activeLiveIdx < 0 || activeLiveIdx >= liveBlocks.length) return;
-  const block = liveBlocks[activeLiveIdx];
-  const ta    = block.wrapEl.querySelector('.live-ta');
-  if (ta) { block.raw = ta.value; liveSyncToEditor(); }
+  const block  = liveBlocks[activeLiveIdx];
+  const editEl = block.wrapEl.querySelector('.live-edit-area');
+  if (editEl) { block.raw = getLiveEditText(editEl); liveSyncToEditor(); }
   renderLiveBlock(block);
   activeLiveIdx = -1;
 }
 
-function activateLiveBlock(idx) {
+/* Get plain-text content from a contenteditable element, normalising
+   browser-inserted <div>/<br> into newlines */
+function getLiveEditText(el) {
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeName === 'BR') return '\n';
+    let s = '';
+    for (const child of node.childNodes) s += walk(child);
+    /* Block-level elements (DIV, P) add a leading newline except for the
+       first child of the root, where the browser won't */
+    if ((node.nodeName === 'DIV' || node.nodeName === 'P') && node !== el) {
+      s = '\n' + s;
+    }
+    return s;
+  }
+  return walk(el).replace(/\n$/, '');
+}
+
+/* Returns the plain-text that lies before the selection start in `container` */
+function textBeforeCursor(container, range) {
+  const pre = range.cloneRange();
+  pre.selectNodeContents(container);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return pre.toString();
+}
+
+/* Returns the plain-text that lies after the selection end in `container` */
+function textAfterCursor(container, range) {
+  const post = range.cloneRange();
+  post.selectNodeContents(container);
+  post.setStart(range.endContainer, range.endOffset);
+  return post.toString();
+}
+
+function activateLiveBlock(idx, placeCursorAtStart) {
   if (idx === activeLiveIdx) return;
   deactivateCurrentLiveBlock();
   activeLiveIdx = idx;
 
-  const block = liveBlocks[idx];
+  const block  = liveBlocks[idx];
   block.wrapEl.innerHTML = '';
   block.wrapEl.classList.remove('rendered');
   block.wrapEl.classList.add('editing');
 
-  const ta = document.createElement('textarea');
-  ta.className  = 'live-ta';
-  ta.value      = block.raw;
-  ta.spellcheck = true;
-  block.wrapEl.appendChild(ta);
+  const editEl = document.createElement('div');
+  editEl.className       = 'live-edit-area';
+  editEl.contentEditable = 'true';
+  editEl.spellcheck      = true;
+  /* Set as a single text node so white-space:pre-wrap preserves newlines */
+  editEl.textContent = block.raw;
+  block.wrapEl.appendChild(editEl);
 
-  function resize() { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
-
-  ta.addEventListener('input', () => {
-    block.raw = ta.value;
-    resize();
+  editEl.addEventListener('input', () => {
+    block.raw = getLiveEditText(editEl);
     liveSyncToEditor();
   });
 
-  /* Blur: re-render after a short delay so clicks on other blocks register first */
-  ta.addEventListener('blur', () => {
+  /* Blur: re-render after short delay so clicks on other blocks register first */
+  editEl.addEventListener('blur', () => {
     setTimeout(() => {
       if (activeLiveIdx === idx) deactivateCurrentLiveBlock();
     }, 180);
   });
 
-  ta.addEventListener('keydown', e => {
+  editEl.addEventListener('keydown', e => {
     if (e.key === 'Tab') {
       e.preventDefault();
-      const s = ta.selectionStart;
-      ta.value = ta.value.slice(0, s) + '    ' + ta.value.slice(ta.selectionEnd);
-      ta.selectionStart = ta.selectionEnd = s + 4;
-      block.raw = ta.value; liveSyncToEditor();
+      document.execCommand('insertText', false, '    ');
+      block.raw = getLiveEditText(editEl);
+      liveSyncToEditor();
     }
-    /* Escape: blur and render */
-    if (e.key === 'Escape') { ta.blur(); }
+
+    /* Enter: insert literal newline instead of <div>/<br> */
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.execCommand('insertText', false, '\n');
+      block.raw = getLiveEditText(editEl);
+      liveSyncToEditor();
+    }
+
+    if (e.key === 'Escape') { editEl.blur(); }
+
+    /* Arrow-key navigation between blocks */
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && window.getSelection().rangeCount) {
+      const range = window.getSelection().getRangeAt(0);
+      if (e.key === 'ArrowUp') {
+        if (!textBeforeCursor(editEl, range).includes('\n') && idx > 0) {
+          e.preventDefault();
+          activateLiveBlock(idx - 1, false /* cursor at end */);
+        }
+      } else {
+        if (!textAfterCursor(editEl, range).includes('\n') && idx < liveBlocks.length - 1) {
+          e.preventDefault();
+          activateLiveBlock(idx + 1, true /* cursor at start */);
+        }
+      }
+    }
   });
 
-  requestAnimationFrame(() => { resize(); ta.focus(); });
+  requestAnimationFrame(() => {
+    editEl.focus();
+    const range = document.createRange();
+    range.selectNodeContents(editEl);
+    range.collapse(placeCursorAtStart ? true : false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
 }
 
 function addLiveBlock(raw, insertIdx) {
@@ -1350,6 +1414,8 @@ function addLiveBlock(raw, insertIdx) {
   }
 
   wrapEl.addEventListener('mousedown', e => {
+    /* Let link clicks pass through so they open normally */
+    if (e.target.closest && e.target.closest('a[href]')) return;
     e.stopPropagation();
     const i = liveBlocks.indexOf(block);
     if (i >= 0) activateLiveBlock(i);
