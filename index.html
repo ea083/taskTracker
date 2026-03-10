@@ -165,6 +165,24 @@
         .stat { text-align: center; line-height: 1; }
         .stat-value { font-size: 18px; font-weight: 700; color: var(--text); }
         .stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.7px; margin-top: 3px; }
+        .btn-notes-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--primary);
+            border: 1.5px solid var(--primary);
+            text-decoration: none;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+        }
+        .btn-notes-link:hover {
+            background: var(--primary);
+            color: #fff;
+        }
         .user-info {
             display: flex;
             align-items: center;
@@ -1632,6 +1650,7 @@
             </div>
         </div>
         <div class="user-info">
+            <a class="btn-notes-link" href="NotesApp/index.html" title="Open Notes App">&#x1F4DD; Notes</a>
             <button class="btn-dark-toggle" id="dark-toggle" onclick="toggleDarkMode()" title="Toggle dark mode">🌙</button>
             <img class="user-avatar" id="user-avatar" alt="Profile photo">
             <span class="user-name" id="user-name"></span>
@@ -2363,7 +2382,8 @@ function restoreTimer() {
 
 // ── Utilities ─────────────────────────────────
 function uid() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+    return crypto.getRandomValues(new Uint8Array(9))
+        .reduce((a, b) => a + b.toString(36).padStart(2, '0'), '');
 }
 function fmtSecs(s) {
     s = Math.max(0, Math.floor(s));

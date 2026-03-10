@@ -60,6 +60,26 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   letter-spacing: 0.02em;
 }
 
+#btn-tasks-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+#btn-tasks-link:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 #btn-new {
   background: var(--accent);
   color: #fff;
