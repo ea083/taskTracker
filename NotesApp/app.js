@@ -1,17 +1,23 @@
 /* ── Notes App (GitHub backend) ─────────────────────────────
-   Each note = one .md file in a GitHub repo.
+   Each note = one .md file in a GitHub repo (nested folders supported).
    Title = filename without .md  (Obsidian-compatible).
    Requires github.js to be loaded first.
 ──────────────────────────────────────────────────────────── */
 
 /* ── State ─────────────────────────────────────────────────── */
-let notes         = [];     // [{ filename, title, sha, updatedAt }]
-let activeId      = null;   // current filename (e.g. "My Note.md")
+let notes         = [];     // [{ path, title, sha, updatedAt }]
+let activeId      = null;   // current note path (e.g. "folder/My Note.md")
 let mode          = 'edit'; // 'edit' | 'split' | 'preview'
 let saveTimer     = null;
 let isSaving      = false;
-let operationLock = false;  // true during rename / delete
+let operationLock = false;  // true during rename / delete / move
 let pendingTitle  = false;  // title input changed but not yet committed
+
+/* ── Folder state ───────────────────────────────────────────── */
+let knownFolders    = new Set(); // folders from GitHub (.gitkeep) + this session
+let expandedFolders = new Set(); // folders open in sidebar
+let currentFolder   = '';        // folder where new notes/folders are created
+let modalMode       = 'rename';  // 'rename' | 'folder'
 
 /* ── DOM refs ──────────────────────────────────────────────── */
 const $sidebar        = document.getElementById('sidebar');
@@ -19,12 +25,14 @@ const $noteList       = document.getElementById('note-list');
 const $search         = document.getElementById('search');
 const $btnNew         = document.getElementById('btn-new');
 const $btnNewEmpty    = document.getElementById('btn-new-empty');
+const $btnNewFolder   = document.getElementById('btn-new-folder');
 const $btnToggle      = document.getElementById('btn-toggle-sidebar');
 const $btnModeEdit    = document.getElementById('btn-mode-edit');
 const $btnModeSplit   = document.getElementById('btn-mode-split');
 const $btnModePreview = document.getElementById('btn-mode-preview');
 const $divider        = document.getElementById('divider');
 const $btnRename      = document.getElementById('btn-rename');
+const $btnMove        = document.getElementById('btn-move');
 const $btnDelete      = document.getElementById('btn-delete');
 const $btnSettings    = document.getElementById('btn-settings');
 const $editor         = document.getElementById('editor');
@@ -45,11 +53,18 @@ const $cfgTest         = document.getElementById('cfg-test');
 const $cfgSave         = document.getElementById('cfg-save');
 const $cfgCancel       = document.getElementById('cfg-cancel');
 const $cfgStatus       = document.getElementById('cfg-status');
-/* Rename modal (kept for Ctrl+R / Rename button in preview mode) */
+/* Note modal (rename + new folder) */
 const $modalOverlay = document.getElementById('modal-overlay');
+const $modalLabel   = document.getElementById('modal-label');
 const $modalInput   = document.getElementById('modal-input');
 const $modalCancel  = document.getElementById('modal-cancel');
 const $modalConfirm = document.getElementById('modal-confirm');
+/* Move modal */
+const $moveOverlay  = document.getElementById('move-overlay');
+const $moveNoteName = document.getElementById('move-note-name');
+const $moveSelect   = document.getElementById('move-select');
+const $moveCancel   = document.getElementById('move-cancel');
+const $moveConfirm  = document.getElementById('move-confirm');
 
 /* ── Status bar ────────────────────────────────────────────── */
 let statusTimer = null;
@@ -65,7 +80,7 @@ function setStatus(msg, isError = false, persist = false) {
   }
 }
 
-/* ── Filename helpers ───────────────────────────────────────── */
+/* ── Filename / folder helpers ──────────────────────────────── */
 function sanitizeFilename(title) {
   return (title || 'Untitled note')
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
@@ -74,14 +89,41 @@ function sanitizeFilename(title) {
     .slice(0, 200) || 'Untitled note';
 }
 
-function uniqueFilename(title) {
+function sanitizeFolderName(name) {
+  return (name || 'New Folder')
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100) || 'New Folder';
+}
+
+/* Parent folder of a note path, e.g. "a/b/c.md" → "a/b", "c.md" → "" */
+function noteFolder(path) {
+  const i = path.lastIndexOf('/');
+  return i === -1 ? '' : path.slice(0, i);
+}
+
+/* Unique filename within a specific folder */
+function uniqueFilename(title, folder = '') {
   const base = sanitizeFilename(title);
-  let filename = `${base}.md`;
-  let counter  = 1;
-  while (notes.some(n => n.filename === filename)) {
-    filename = `${base} ${counter++}.md`;
+  let fn     = `${base}.md`;
+  let i      = 1;
+  while (notes.some(n => {
+    return noteFolder(n.path) === folder && n.path.split('/').pop() === fn;
+  })) fn = `${base} ${i++}.md`;
+  return fn;
+}
+
+/* All known folder paths (from GitHub + derived from note paths + this session) */
+function allFolderPaths() {
+  const set = new Set(knownFolders);
+  for (const note of notes) {
+    const parts = note.path.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      set.add(parts.slice(0, i).join('/'));
+    }
   }
-  return filename;
+  return set;
 }
 
 /* ── Date formatter ─────────────────────────────────────────── */
@@ -96,31 +138,113 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/* ── Sidebar ────────────────────────────────────────────────── */
+/* ── Folder state persistence ───────────────────────────────── */
+function saveExpandedState() {
+  localStorage.setItem('gh_expanded',       JSON.stringify([...expandedFolders]));
+  localStorage.setItem('gh_current_folder', currentFolder);
+}
+
+function loadExpandedState() {
+  try {
+    const exp = localStorage.getItem('gh_expanded');
+    if (exp) expandedFolders = new Set(JSON.parse(exp));
+    currentFolder = localStorage.getItem('gh_current_folder') || '';
+  } catch { /* ignore */ }
+}
+
+/* ── Sidebar tree rendering ─────────────────────────────────── */
 function renderList(filterText = '') {
   const q = filterText.trim().toLowerCase();
   $noteList.innerHTML = '';
 
-  const filtered = notes.filter(n => !q || n.title.toLowerCase().includes(q));
-  filtered.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  if (q) {
+    /* Flat filtered list — show folder path as context */
+    const filtered = notes
+      .filter(n => n.title.toLowerCase().includes(q))
+      .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+    filtered.forEach(n => appendNoteItem(n, 0, true));
+    return;
+  }
 
-  filtered.forEach(n => {
-    const li        = document.createElement('li');
-    li.dataset.id   = n.filename;
-    if (n.filename === activeId) li.classList.add('active');
+  const folders = allFolderPaths();
+  renderLevel('', 0, folders);
+}
 
-    const titleSpan       = document.createElement('span');
-    titleSpan.textContent = n.title;
+function renderLevel(parentPath, depth, folders) {
+  const prefix = parentPath ? parentPath + '/' : '';
 
-    const dateSpan       = document.createElement('span');
-    dateSpan.className   = 'note-date';
-    dateSpan.textContent = formatDate(n.updatedAt);
+  /* Child folders at this exact level (no further nesting) */
+  const childFolders = [...folders]
+    .filter(f => f.startsWith(prefix) && !f.slice(prefix.length).includes('/'))
+    .sort();
 
-    li.appendChild(titleSpan);
-    li.appendChild(dateSpan);
-    li.addEventListener('click', () => openNote(n.filename));
-    $noteList.appendChild(li);
+  /* Notes directly inside this folder */
+  const childNotes = notes
+    .filter(n => noteFolder(n.path) === parentPath)
+    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+
+  childFolders.forEach(fp => {
+    appendFolderItem(fp, depth);
+    if (expandedFolders.has(fp)) renderLevel(fp, depth + 1, folders);
   });
+  childNotes.forEach(n => appendNoteItem(n, depth, false));
+}
+
+function appendFolderItem(folderPath, depth) {
+  const name       = folderPath.split('/').pop();
+  const isExpanded = expandedFolders.has(folderPath);
+  const isActive   = currentFolder === folderPath;
+
+  const li = document.createElement('li');
+  li.className         = 'folder-item' + (isActive ? ' active-folder' : '');
+  li.style.paddingLeft = `${10 + depth * 14}px`;
+
+  const arrow = document.createElement('span');
+  arrow.className   = 'folder-arrow';
+  arrow.textContent = isExpanded ? '▾' : '▸';
+
+  const icon = document.createElement('span');
+  icon.className   = 'folder-icon';
+  icon.textContent = '📁';
+
+  const nameEl = document.createElement('span');
+  nameEl.className   = 'folder-name';
+  nameEl.textContent = name;
+
+  li.append(arrow, icon, nameEl);
+  li.addEventListener('click', () => toggleFolder(folderPath));
+  $noteList.appendChild(li);
+}
+
+function appendNoteItem(note, depth, showFolderHint) {
+  const li = document.createElement('li');
+  li.dataset.id        = note.path;
+  li.style.paddingLeft = `${10 + depth * 14}px`;
+  if (note.path === activeId) li.classList.add('active');
+
+  const titleSpan       = document.createElement('span');
+  titleSpan.textContent = note.title;
+
+  const dateSpan     = document.createElement('span');
+  dateSpan.className = 'note-date';
+  const folderHint   = showFolderHint && noteFolder(note.path)
+    ? noteFolder(note.path) + '  ·  ' : '';
+  dateSpan.textContent = folderHint + formatDate(note.updatedAt);
+
+  li.append(titleSpan, dateSpan);
+  li.addEventListener('click', () => openNote(note.path));
+  $noteList.appendChild(li);
+}
+
+function toggleFolder(folderPath) {
+  if (expandedFolders.has(folderPath)) {
+    expandedFolders.delete(folderPath);
+  } else {
+    expandedFolders.add(folderPath);
+  }
+  currentFolder = folderPath;
+  saveExpandedState();
+  renderList($search.value);
 }
 
 /* ── Editor visibility ──────────────────────────────────────── */
@@ -136,10 +260,10 @@ function setEditorVisible(visible) {
 }
 
 /* ── Open a note ────────────────────────────────────────────── */
-async function openNote(filename) {
+async function openNote(path) {
   if (operationLock) return;
-  activeId = filename;
-  const note = notes.find(n => n.filename === filename);
+  activeId = path;
+  const note = notes.find(n => n.path === path);
   if (!note) return;
 
   $noteTitleInput.value     = note.title;
@@ -150,11 +274,11 @@ async function openNote(filename) {
   setStatus('Loading…', false, true);
 
   try {
-    const { content, sha } = await GH.getFile(filename);
+    const { content, sha } = await GH.getFile(path);
     note.sha      = sha;
     $editor.value = content;
     if (mode !== 'edit') updatePreview();
-    localStorage.setItem('gh_last_open', filename);
+    localStorage.setItem('gh_last_open', path);
     setStatus('');
   } catch (err) {
     setStatus(`Failed to load: ${err.message}`, true);
@@ -166,18 +290,21 @@ async function createNote() {
   if (operationLock) return;
   operationLock = true;
 
-  const filename = uniqueFilename('Untitled note');
+  const folder   = currentFolder;
+  const filename = uniqueFilename('Untitled note', folder);
+  const path     = folder ? `${folder}/${filename}` : filename;
   const title    = filename.slice(0, -3);
   setStatus('Creating note…', false, true);
 
   try {
-    const { sha } = await GH.writeFile(filename, '', null, `Create ${title}`);
+    const { sha } = await GH.writeFile(path, '', null, `Create ${title}`);
     const now      = new Date().toISOString();
-    GH.setDate(filename, now);
-    notes.unshift({ filename, title, sha, updatedAt: now });
+    GH.setDate(path, now);
+    notes.unshift({ path, title, sha, updatedAt: now });
+    if (folder) expandedFolders.add(folder);
     renderList($search.value);
     operationLock = false;
-    await openNote(filename);
+    await openNote(path);
     $noteTitleInput.focus();
     $noteTitleInput.select();
     setStatus('');
@@ -187,10 +314,41 @@ async function createNote() {
   }
 }
 
+/* ── Create a folder ────────────────────────────────────────── */
+async function createFolder(name) {
+  const clean = sanitizeFolderName(name);
+  if (!clean) return;
+
+  const folderPath = currentFolder ? `${currentFolder}/${clean}` : clean;
+
+  if (allFolderPaths().has(folderPath)) {
+    /* Already exists — just navigate to it */
+    currentFolder = folderPath;
+    expandedFolders.add(folderPath);
+    saveExpandedState();
+    renderList($search.value);
+    return;
+  }
+
+  setStatus('Creating folder…', false, true);
+  try {
+    /* GitHub removes empty directories, so write a .gitkeep to anchor the folder */
+    await GH.writeFile(`${folderPath}/.gitkeep`, '', null, `Create folder ${clean}`);
+    knownFolders.add(folderPath);
+    expandedFolders.add(folderPath);
+    currentFolder = folderPath;
+    saveExpandedState();
+    renderList($search.value);
+    setStatus('Folder created');
+  } catch (err) {
+    setStatus(`Failed to create folder: ${err.message}`, true);
+  }
+}
+
 /* ── Delete a note ──────────────────────────────────────────── */
 async function deleteNote() {
   if (!activeId || operationLock) return;
-  const note = notes.find(n => n.filename === activeId);
+  const note = notes.find(n => n.path === activeId);
   if (!note) return;
   if (!confirm(`Delete "${note.title}"? This cannot be undone.`)) return;
 
@@ -199,15 +357,14 @@ async function deleteNote() {
   setStatus('Deleting…', false, true);
 
   try {
-    await GH.deleteFile(note.filename, note.sha, `Delete ${note.title}`);
-    GH.removeDate(note.filename);
-    const idx = notes.findIndex(n => n.filename === note.filename);
-    notes.splice(idx, 1);
+    await GH.deleteFile(note.path, note.sha, `Delete ${note.title}`);
+    GH.removeDate(note.path);
+    notes.splice(notes.findIndex(n => n.path === note.path), 1);
 
     if (notes.length > 0) {
       const sorted = [...notes].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
       operationLock = false;
-      await openNote(sorted[0].filename);
+      await openNote(sorted[0].path);
     } else {
       activeId = null;
       setEditorVisible(false);
@@ -231,17 +388,17 @@ function onEditorInput() {
 
 async function performSave() {
   if (!activeId || isSaving || operationLock) return;
-  const note = notes.find(n => n.filename === activeId);
+  const note = notes.find(n => n.path === activeId);
   if (!note) return;
 
   isSaving = true;
   setStatus('Saving…', false, true);
   try {
     const { sha } = await GH.writeFile(
-      note.filename, $editor.value, note.sha, `Update ${note.title}`);
-    note.sha        = sha;
-    note.updatedAt  = new Date().toISOString();
-    GH.setDate(note.filename, note.updatedAt);
+      note.path, $editor.value, note.sha, `Update ${note.title}`);
+    note.sha       = sha;
+    note.updatedAt = new Date().toISOString();
+    GH.setDate(note.path, note.updatedAt);
     renderList($search.value);
     setStatus('Saved ✓');
   } catch (err) {
@@ -256,7 +413,7 @@ async function commitTitleChange() {
   if (!pendingTitle || !activeId || operationLock) return;
   pendingTitle = false;
 
-  const note     = notes.find(n => n.filename === activeId);
+  const note = notes.find(n => n.path === activeId);
   if (!note) return;
 
   const newTitle = ($noteTitleInput.value || '').trim() || 'Untitled note';
@@ -267,34 +424,31 @@ async function commitTitleChange() {
   setStatus('Renaming…', false, true);
 
   try {
-    const newFilename    = uniqueFilename(newTitle);
+    const folder         = noteFolder(note.path);
+    const newFilename    = uniqueFilename(newTitle, folder);
+    const newPath        = folder ? `${folder}/${newFilename}` : newFilename;
     const currentContent = $editor.value;
 
     /* GitHub has no rename — create new file, delete old */
     const { sha: newSha } = await GH.writeFile(
-      newFilename, currentContent, null,
-      `Rename: ${note.title} → ${newTitle}`);
-    await GH.deleteFile(note.filename, note.sha,
-      `Rename: ${note.title} → ${newTitle}`);
+      newPath, currentContent, null, `Rename: ${note.title} → ${newTitle}`);
+    await GH.deleteFile(note.path, note.sha, `Rename: ${note.title} → ${newTitle}`);
 
-    GH.removeDate(note.filename);
-    const now         = new Date().toISOString();
-    const oldFilename = note.filename;
-
-    note.filename  = newFilename;
+    GH.removeDate(note.path);
+    const now      = new Date().toISOString();
+    note.path      = newPath;
     note.title     = newTitle;
     note.sha       = newSha;
     note.updatedAt = now;
-    GH.setDate(newFilename, now);
+    GH.setDate(newPath, now);
 
-    activeId = newFilename;
-    localStorage.setItem('gh_last_open', newFilename);
+    activeId = newPath;
+    localStorage.setItem('gh_last_open', newPath);
     $titleDisplay.textContent = newTitle;
     renderList($search.value);
     setStatus('Renamed ✓');
   } catch (err) {
-    /* Revert the input */
-    const n = notes.find(n => n.filename === activeId);
+    const n = notes.find(n => n.path === activeId);
     if (n) $noteTitleInput.value = n.title;
     setStatus(`Rename failed: ${err.message}`, true);
   } finally {
@@ -302,11 +456,85 @@ async function commitTitleChange() {
   }
 }
 
+/* ── Move note to another folder ────────────────────────────── */
+function openMoveModal() {
+  if (!activeId) return;
+  const note = notes.find(n => n.path === activeId);
+  if (!note) return;
+
+  $moveNoteName.textContent = note.title;
+
+  /* Populate folder list */
+  $moveSelect.innerHTML = '<option value="">(root)</option>';
+  const curFolder = noteFolder(note.path);
+  [...allFolderPaths()].sort().forEach(f => {
+    const opt       = document.createElement('option');
+    opt.value       = f;
+    opt.textContent = f;
+    if (f === curFolder) opt.selected = true;
+    $moveSelect.appendChild(opt);
+  });
+  if (!curFolder) $moveSelect.value = '';
+
+  $moveOverlay.classList.remove('hidden');
+}
+
+function closeMoveModal() { $moveOverlay.classList.add('hidden'); }
+
+async function confirmMove() {
+  const note = notes.find(n => n.path === activeId);
+  if (!note) { closeMoveModal(); return; }
+
+  const targetFolder = $moveSelect.value;
+  const curFolder    = noteFolder(note.path);
+  if (targetFolder === curFolder) { closeMoveModal(); return; }
+
+  closeMoveModal();
+  operationLock = true;
+  clearTimeout(saveTimer);
+  setStatus('Moving…', false, true);
+
+  try {
+    const baseName = note.path.split('/').pop();
+    let newPath    = targetFolder ? `${targetFolder}/${baseName}` : baseName;
+
+    /* Resolve name collisions in target folder */
+    let counter = 1;
+    while (notes.some(n => n.path !== note.path && n.path === newPath)) {
+      const stem = baseName.slice(0, -3);
+      newPath    = targetFolder ? `${targetFolder}/${stem} ${counter++}.md` : `${stem} ${counter++}.md`;
+    }
+
+    const content = $editor.value;
+    const { sha: newSha } = await GH.writeFile(newPath, content, null, `Move ${note.title}`);
+    await GH.deleteFile(note.path, note.sha, `Move ${note.title}`);
+
+    GH.removeDate(note.path);
+    const now      = new Date().toISOString();
+    note.path      = newPath;
+    note.sha       = newSha;
+    note.updatedAt = now;
+    GH.setDate(newPath, now);
+
+    activeId = newPath;
+    localStorage.setItem('gh_last_open', newPath);
+    if (targetFolder) expandedFolders.add(targetFolder);
+    renderList($search.value);
+    setStatus('Moved ✓');
+  } catch (err) {
+    setStatus(`Move failed: ${err.message}`, true);
+  } finally {
+    operationLock = false;
+  }
+}
+
+/* ── Note modal (rename + new folder) ──────────────────────── */
 function openRenameModal() {
-  /* In non-edit modes the editor pane is hidden; use the old modal */
   if (mode !== 'edit' && mode !== 'split') {
-    const note = notes.find(n => n.filename === activeId);
+    const note = notes.find(n => n.path === activeId);
     if (!note) return;
+    modalMode = 'rename';
+    $modalLabel.textContent = 'Rename note';
     $modalInput.value = note.title;
     $modalOverlay.classList.remove('hidden');
     $modalInput.select();
@@ -317,20 +545,34 @@ function openRenameModal() {
   }
 }
 
+function openCreateFolderModal() {
+  modalMode = 'folder';
+  $modalLabel.textContent = currentFolder
+    ? `New folder inside "${currentFolder.split('/').pop()}"`
+    : 'New folder at root';
+  $modalInput.value = '';
+  $modalOverlay.classList.remove('hidden');
+  $modalInput.focus();
+}
+
 function closeModal() { $modalOverlay.classList.add('hidden'); }
 
-function confirmRename() {
-  const newTitle = $modalInput.value.trim();
-  if (!newTitle || !activeId) { closeModal(); return; }
-  $noteTitleInput.value = newTitle;
-  pendingTitle = true;
+function confirmModal() {
+  const val = $modalInput.value.trim();
   closeModal();
-  commitTitleChange();
+  if (!val) return;
+  if (modalMode === 'rename') {
+    $noteTitleInput.value = val;
+    pendingTitle = true;
+    commitTitleChange();
+  } else {
+    createFolder(val);
+  }
 }
 
 /* ── Settings modal ─────────────────────────────────────────── */
 function showSettings() {
-  const cfg       = GH.getConfig();
+  const cfg        = GH.getConfig();
   $cfgToken.value  = cfg.token;
   $cfgOwner.value  = cfg.owner;
   $cfgRepo.value   = cfg.repo;
@@ -341,9 +583,7 @@ function showSettings() {
   ($cfgToken.value ? $cfgOwner : $cfgToken).focus();
 }
 
-function hideSettings() {
-  $settingsOverlay.classList.add('hidden');
-}
+function hideSettings() { $settingsOverlay.classList.add('hidden'); }
 
 async function testConnection() {
   const token = $cfgToken.value.trim(), owner = $cfgOwner.value.trim(),
@@ -438,8 +678,8 @@ function makeCollapsible() {
     }
     if (collected.length === 0) return;
 
-    const wrapper       = document.createElement('div');
-    wrapper.className   = 'collapsible-content';
+    const wrapper     = document.createElement('div');
+    wrapper.className = 'collapsible-content';
     heading.after(wrapper);
     collected.forEach(el => wrapper.appendChild(el));
 
@@ -581,9 +821,9 @@ document.addEventListener('keydown', e => {
   if (mod && e.key === 'r') { e.preventDefault(); if (activeId) openRenameModal(); }
   if (mod && e.key === ',') { e.preventDefault(); showSettings(); }
   if (mod && e.shiftKey && e.key === 'B') { e.preventDefault(); toggleSidebar(); }
-  if (e.key === 'Escape') { hideSettings(); closeModal(); }
+  if (e.key === 'Escape') { hideSettings(); closeModal(); closeMoveModal(); }
   if (e.key === 'Enter' && !$modalOverlay.classList.contains('hidden')) {
-    e.preventDefault(); confirmRename();
+    e.preventDefault(); confirmModal();
   }
   if (document.activeElement === $editor) {
     if (e.key === 'Tab') {
@@ -595,21 +835,18 @@ document.addEventListener('keydown', e => {
     }
     if (e.key === 'Enter') handleEditorEnter(e);
   }
-  if (e.key === 'Enter' && document.activeElement === $cfgOwner ||
-      e.key === 'Enter' && document.activeElement === $cfgRepo  ||
-      e.key === 'Enter' && document.activeElement === $cfgFolder) {
-    /* Allow Enter to move between settings fields naturally */
-  }
 });
 
 /* ── Wire up events ─────────────────────────────────────────── */
 $btnNew.addEventListener('click', createNote);
 $btnNewEmpty.addEventListener('click', createNote);
+$btnNewFolder.addEventListener('click', openCreateFolderModal);
 $btnToggle.addEventListener('click', toggleSidebar);
 $btnModeEdit.addEventListener('click',    () => { if (activeId) setMode('edit'); });
 $btnModeSplit.addEventListener('click',   () => { if (activeId) setMode('split'); });
 $btnModePreview.addEventListener('click', () => { if (activeId) setMode('preview'); });
 $btnRename.addEventListener('click', openRenameModal);
+$btnMove.addEventListener('click', openMoveModal);
 $btnDelete.addEventListener('click', deleteNote);
 $btnSettings.addEventListener('click', showSettings);
 $editor.addEventListener('input', onEditorInput);
@@ -620,7 +857,7 @@ $noteTitleInput.addEventListener('input', () => {
   if (!activeId) return;
   pendingTitle = true;
   $titleDisplay.textContent = $noteTitleInput.value ||
-    (notes.find(n => n.filename === activeId) || {}).title || '';
+    (notes.find(n => n.path === activeId) || {}).title || '';
   if (mode !== 'edit') updatePreview();
   renderList($search.value);
 });
@@ -628,7 +865,7 @@ $noteTitleInput.addEventListener('blur', commitTitleChange);
 $noteTitleInput.addEventListener('keydown', e => {
   if (e.key === 'Enter')  { e.preventDefault(); $editor.focus(); }
   if (e.key === 'Escape') {
-    const note = notes.find(n => n.filename === activeId);
+    const note = notes.find(n => n.path === activeId);
     if (note) $noteTitleInput.value = note.title;
     pendingTitle = false;
     $editor.focus();
@@ -643,17 +880,26 @@ $settingsOverlay.addEventListener('click', e => {
   if (e.target === $settingsOverlay) hideSettings();
 });
 
-/* Rename modal */
+/* Note modal (rename + folder) */
 $modalCancel.addEventListener('click', closeModal);
-$modalConfirm.addEventListener('click', confirmRename);
+$modalConfirm.addEventListener('click', confirmModal);
 $modalOverlay.addEventListener('click', e => {
   if (e.target === $modalOverlay) closeModal();
 });
 
+/* Move modal */
+$moveCancel.addEventListener('click', closeMoveModal);
+$moveConfirm.addEventListener('click', confirmMove);
+$moveOverlay.addEventListener('click', e => {
+  if (e.target === $moveOverlay) closeMoveModal();
+});
+
 /* ── Boot ───────────────────────────────────────────────────── */
 async function init() {
-  notes    = [];
-  activeId = null;
+  notes        = [];
+  activeId     = null;
+  knownFolders = new Set();
+  loadExpandedState();
   renderList();
   setEditorVisible(false);
 
@@ -664,33 +910,48 @@ async function init() {
 
   setStatus('Connecting to GitHub…', false, true);
   try {
-    let files;
+    let allFiles;
     try {
-      files = await GH.listFiles();
+      allFiles = await GH.listAllFiles();
     } catch (err) {
-      /* 404 means the folder doesn't exist yet — treat as empty notes list */
       if (err.message.includes('404')) {
-        files = [];
+        allFiles = [];
       } else {
         throw err;
       }
     }
-    notes = files
-      .filter(f => f.type === 'file' && f.name.endsWith('.md'))
+
+    /* Folders anchored by .gitkeep files */
+    allFiles
+      .filter(f => f.name === '.gitkeep')
+      .forEach(f => {
+        const folder = f.relPath.split('/').slice(0, -1).join('/');
+        if (folder) knownFolders.add(folder);
+      });
+
+    /* Notes */
+    notes = allFiles
+      .filter(f => f.name.endsWith('.md'))
       .map(f => ({
-        filename:  f.name,
+        path:      f.relPath,
         title:     f.name.slice(0, -3),
         sha:       f.sha,
-        updatedAt: GH.getDate(f.name)
+        updatedAt: GH.getDate(f.relPath)
       }));
-    notes.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+
+    /* Validate saved currentFolder still exists */
+    if (currentFolder && !allFolderPaths().has(currentFolder)) {
+      currentFolder = '';
+      saveExpandedState();
+    }
+
     renderList();
     setStatus('');
 
     if (notes.length > 0) {
       const lastOpen = localStorage.getItem('gh_last_open');
-      const toOpen   = notes.find(n => n.filename === lastOpen) || notes[0];
-      await openNote(toOpen.filename);
+      const toOpen   = notes.find(n => n.path === lastOpen) || notes[0];
+      await openNote(toOpen.path);
     }
   } catch (err) {
     setStatus(`Connection failed: ${err.message}`, true, true);

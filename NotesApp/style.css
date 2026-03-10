@@ -684,6 +684,111 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 }
 #cfg-save:hover { background: var(--accent-h); }
 
+/* ── New Folder button ────────────────────────────────────── */
+#btn-new-folder {
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+#btn-new-folder:hover { background: var(--border); color: var(--text); }
+
+/* ── Folder items in sidebar ──────────────────────────────── */
+#note-list .folder-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  padding-right: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+#note-list .folder-item:hover { background: var(--surface2); color: var(--text); }
+#note-list .folder-item.active-folder { background: var(--surface2); color: var(--accent); }
+
+.folder-arrow {
+  font-size: 0.65rem;
+  width: 10px;
+  flex-shrink: 0;
+  color: inherit;
+}
+.folder-icon  { font-size: 0.8rem; flex-shrink: 0; }
+.folder-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Move modal ───────────────────────────────────────────── */
+#move-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+#move-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#move-modal p {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin: 0;
+}
+
+#move-select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  font-family: var(--sans);
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+#move-select:focus { border-color: var(--accent); }
+
+#move-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+#move-actions button {
+  border-radius: 6px;
+  padding: 7px 18px;
+  font-size: 0.87rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+#move-cancel  { background: var(--surface2); color: var(--text); }
+#move-cancel:hover { background: var(--border); }
+#move-confirm { background: var(--accent); color: #fff; border-color: var(--accent); }
+#move-confirm:hover { background: var(--accent-h); }
+
 /* ── Utilities ────────────────────────────────────────────── */
 .hidden { display: none !important; }
 
