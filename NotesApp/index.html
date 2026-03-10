@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Notes</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <span id="app-title">Notes</span>
+        <button id="btn-new" title="New note">+</button>
+      </div>
+      <div id="search-wrap">
+        <input id="search" type="text" placeholder="Search notes…" autocomplete="off" />
+      </div>
+      <ul id="note-list"></ul>
+    </aside>
+
+    <!-- Main area -->
+    <main id="main">
+      <div id="toolbar">
+        <div id="toolbar-left">
+          <button id="btn-toggle-sidebar" title="Toggle sidebar">&#9776;</button>
+          <span id="note-title-display"></span>
+        </div>
+        <div id="toolbar-right">
+          <div id="mode-switcher" role="group" aria-label="View mode">
+            <button id="btn-mode-edit"    class="mode-btn" title="Edit mode (Ctrl+1)">Edit</button>
+            <button id="btn-mode-split"   class="mode-btn" title="Split mode (Ctrl+2)">Split</button>
+            <button id="btn-mode-preview" class="mode-btn" title="Preview mode (Ctrl+3)">Preview</button>
+          </div>
+          <button id="btn-rename"   title="Rename note (Ctrl+R)">Rename</button>
+          <button id="btn-delete"   title="Delete note">Delete</button>
+          <button id="btn-settings" title="GitHub settings (Ctrl+,)">&#9881;</button>
+        </div>
+      </div>
+
+      <div id="editor-wrap">
+        <div id="editor-pane">
+          <input id="note-title-input" type="text" placeholder="Untitled note"
+                 autocomplete="off" spellcheck="true" />
+          <textarea id="editor" placeholder="Write your note in Markdown…"
+                    spellcheck="true"></textarea>
+        </div>
+        <div id="divider" class="hidden"></div>
+        <div id="preview" class="hidden"></div>
+      </div>
+
+      <div id="empty-state">
+        <p>No notes yet.</p>
+        <button id="btn-new-empty">Create a new note</button>
+      </div>
+
+      <!-- Status bar -->
+      <div id="status-bar"><span id="status-text"></span></div>
+    </main>
+  </div>
+
+  <!-- GitHub Settings modal -->
+  <div id="settings-overlay" class="hidden">
+    <div id="settings-modal">
+      <h2>GitHub Settings</h2>
+
+      <div class="cfg-field">
+        <label for="cfg-token">Personal Access Token <span class="required">*</span></label>
+        <input id="cfg-token" type="password" placeholder="ghp_…" autocomplete="off" />
+        <p class="cfg-hint">
+          Create a <strong>fine-grained</strong> token at
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank"
+             rel="noopener noreferrer">github.com/settings/tokens</a>
+          with <strong>Contents: Read &amp; Write</strong> on your notes repo.
+        </p>
+      </div>
+
+      <div class="cfg-row">
+        <div class="cfg-field">
+          <label for="cfg-owner">Owner <span class="required">*</span></label>
+          <input id="cfg-owner" type="text" placeholder="your-username" />
+        </div>
+        <div class="cfg-field">
+          <label for="cfg-repo">Repository <span class="required">*</span></label>
+          <input id="cfg-repo" type="text" placeholder="my-notes" />
+        </div>
+      </div>
+
+      <div class="cfg-field">
+        <label for="cfg-folder">Folder path <span class="cfg-optional">(optional)</span></label>
+        <input id="cfg-folder" type="text" placeholder="notes  or  vault/notes" />
+        <p class="cfg-hint">Leave blank to use the repo root. Must already exist in the repo.</p>
+      </div>
+
+      <p id="cfg-status"></p>
+
+      <div id="cfg-actions">
+        <button id="cfg-cancel">Cancel</button>
+        <button id="cfg-test">Test connection</button>
+        <button id="cfg-save">Save &amp; connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename modal (used in Preview mode where title input is hidden) -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <label for="modal-input">Rename note</label>
+      <input id="modal-input" type="text" />
+      <div id="modal-actions">
+        <button id="modal-cancel">Cancel</button>
+        <button id="modal-confirm">Rename</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="github.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
