@@ -664,7 +664,17 @@ async function init() {
 
   setStatus('Connecting to GitHub…', false, true);
   try {
-    const files = await GH.listFiles();
+    let files;
+    try {
+      files = await GH.listFiles();
+    } catch (err) {
+      /* 404 means the folder doesn't exist yet — treat as empty notes list */
+      if (err.message.includes('404')) {
+        files = [];
+      } else {
+        throw err;
+      }
+    }
     notes = files
       .filter(f => f.type === 'file' && f.name.endsWith('.md'))
       .map(f => ({
