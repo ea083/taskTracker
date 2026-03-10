@@ -392,8 +392,16 @@ function updatePreview() {
   const title = $noteTitleInput.value.trim();
   if (typeof marked !== 'undefined') {
     const titleHtml = title ? `<h1 class="preview-note-title">${esc(title)}</h1>` : '';
-    $preview.innerHTML = titleHtml + marked.parse(raw, { breaks: true, gfm: true });
+    const rawHtml = titleHtml + marked.parse(raw, { breaks: true, gfm: true });
+    $preview.innerHTML = typeof DOMPurify !== 'undefined'
+      ? DOMPurify.sanitize(rawHtml)
+      : rawHtml;
     $preview.querySelectorAll('a[href]').forEach(a => {
+      const proto = a.protocol.toLowerCase();
+      if (proto === 'javascript:' || proto === 'data:' || proto === 'vbscript:') {
+        a.removeAttribute('href');
+        return;
+      }
       a.target = '_blank';
       a.rel    = 'noopener noreferrer';
     });

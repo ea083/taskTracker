@@ -2382,7 +2382,8 @@ function restoreTimer() {
 
 // ── Utilities ─────────────────────────────────
 function uid() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+    return crypto.getRandomValues(new Uint8Array(9))
+        .reduce((a, b) => a + b.toString(36).padStart(2, '0'), '');
 }
 function fmtSecs(s) {
     s = Math.max(0, Math.floor(s));
