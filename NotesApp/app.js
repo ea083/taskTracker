@@ -7,7 +7,7 @@
 /* ── State ─────────────────────────────────────────────────── */
 let notes         = [];     // [{ path, title, sha, updatedAt }]
 let activeId      = null;   // current note path (e.g. "folder/My Note.md")
-let mode          = 'edit'; // 'edit' | 'split' | 'preview'
+let mode          = 'split'; // 'edit' | 'split' | 'preview' | 'live'
 let saveTimer     = null;
 let isSaving      = false;
 let operationLock = false;  // true during rename / delete / move
@@ -38,6 +38,8 @@ const $btnToggle      = document.getElementById('btn-toggle-sidebar');
 const $btnModeEdit    = document.getElementById('btn-mode-edit');
 const $btnModeSplit   = document.getElementById('btn-mode-split');
 const $btnModePreview = document.getElementById('btn-mode-preview');
+const $btnModeLive    = document.getElementById('btn-mode-live');
+const $livePane       = document.getElementById('live-pane');
 const $divider        = document.getElementById('divider');
 const $btnRename      = document.getElementById('btn-rename');
 const $btnMove        = document.getElementById('btn-move');
@@ -438,7 +440,10 @@ function onEditorInput() {
   if (!activeId) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(performSave, 1500);
-  if (mode !== 'edit') updatePreview();
+  if (mode === 'split' || mode === 'preview') {
+    updatePreview();
+    requestAnimationFrame(syncSplitCursor);
+  }
 }
 
 async function performSave() {
@@ -921,10 +926,9 @@ function updatePreview() {
   const title = $noteTitleInput.value.trim();
   if (typeof marked !== 'undefined') {
     const titleHtml = title ? `<h1 class="preview-note-title">${esc(title)}</h1>` : '';
-    const rawHtml = titleHtml + marked.parse(raw, { breaks: true, gfm: true });
-    $preview.innerHTML = typeof DOMPurify !== 'undefined'
-      ? DOMPurify.sanitize(rawHtml)
-      : rawHtml;
+    const rawHtml   = titleHtml + marked.parse(raw, { breaks: true, gfm: true });
+    const sanitized = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
+    $preview.innerHTML = `<div class="prose">${sanitized}</div>`;
     $preview.querySelectorAll('a[href]').forEach(a => {
       const proto = a.protocol.toLowerCase();
       if (proto === 'javascript:' || proto === 'data:' || proto === 'vbscript:') {
@@ -1156,37 +1160,222 @@ function initDragAndDrop() {
 
 /* ── Mode switching ─────────────────────────────────────────── */
 function setMode(newMode) {
+  if (mode === 'live') deactivateCurrentLiveBlock();
   mode = newMode;
-  [$btnModeEdit, $btnModeSplit, $btnModePreview].forEach(b => b.classList.remove('active'));
-  if (mode === 'edit')    $btnModeEdit.classList.add('active');
-  if (mode === 'split')   $btnModeSplit.classList.add('active');
-  if (mode === 'preview') $btnModePreview.classList.add('active');
 
+  [$btnModeEdit, $btnModeSplit, $btnModePreview, $btnModeLive]
+    .forEach(b => b.classList.remove('active'));
+
+  /* Reset layout */
   $editorWrap.classList.remove('split');
+  $editorPane.classList.remove('hidden');
+  $preview.classList.add('hidden');
+  $divider.classList.add('hidden');
+  $livePane.classList.add('hidden');
+
   if (mode === 'edit') {
-    $editorPane.classList.remove('hidden');
-    $preview.classList.add('hidden');
-    $divider.classList.add('hidden');
+    $btnModeEdit.classList.add('active');
     $editor.focus();
   } else if (mode === 'split') {
+    $btnModeSplit.classList.add('active');
     $editorWrap.classList.add('split');
-    $editorPane.classList.remove('hidden');
     $divider.classList.remove('hidden');
     $preview.classList.remove('hidden');
     updatePreview();
+    requestAnimationFrame(syncSplitScroll);
     $editor.focus();
-  } else {
+  } else if (mode === 'preview') {
+    $btnModePreview.classList.add('active');
     $editorPane.classList.add('hidden');
-    $divider.classList.add('hidden');
     $preview.classList.remove('hidden');
     updatePreview();
+  } else if (mode === 'live') {
+    $btnModeLive.classList.add('active');
+    $editorPane.classList.add('hidden');
+    $livePane.classList.remove('hidden');
+    initLiveMode();
   }
 }
 
 function cycleMode() {
-  const order = ['edit', 'split', 'preview'];
+  const order = ['edit', 'split', 'preview', 'live'];
   setMode(order[(order.indexOf(mode) + 1) % order.length]);
 }
+
+/* ── Split view scroll sync ─────────────────────────────────── */
+function syncSplitScroll() {
+  if (mode !== 'split') return;
+  const edMax = $editor.scrollHeight - $editor.clientHeight;
+  if (edMax <= 0) return;
+  const ratio   = $editor.scrollTop / edMax;
+  const prevMax = $preview.scrollHeight - $preview.clientHeight;
+  $preview.scrollTop = ratio * prevMax;
+}
+
+function syncSplitCursor() {
+  if (mode !== 'split') return;
+  const text = $editor.value;
+  if (!text.length) return;
+  const lines     = text.slice(0, $editor.selectionStart).split('\n').length;
+  const totalLines = text.split('\n').length;
+  const ratio      = lines / Math.max(totalLines, 1);
+  const prevMax    = $preview.scrollHeight - $preview.clientHeight;
+  if (prevMax <= 0) return;
+  $preview.scrollTop = ratio * prevMax;
+}
+
+/* ── Live (WYSIWYG) mode ────────────────────────────────────── */
+let liveBlocks    = [];   // [{ raw:string, wrapEl:Element }]
+let activeLiveIdx = -1;
+
+/* Split markdown text into block-level chunks (blank-line separated;
+   code fences kept whole) */
+function splitMarkdownBlocks(text) {
+  const lines  = (text || '').split('\n');
+  const blocks = [];
+  let   curr   = [];
+  let   fence  = false;
+
+  for (const line of lines) {
+    if (/^(`{3,}|~{3,})/.test(line)) {
+      curr.push(line);
+      fence = !fence;
+      if (!fence) { blocks.push(curr.join('\n')); curr = []; }
+    } else if (!fence && line.trim() === '') {
+      if (curr.length) { blocks.push(curr.join('\n')); curr = []; }
+    } else {
+      curr.push(line);
+    }
+  }
+  if (curr.length) blocks.push(curr.join('\n'));
+  return blocks.filter(b => b.trim() !== '');
+}
+
+function liveSyncToEditor() {
+  $editor.value = liveBlocks.map(b => b.raw).join('\n\n');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(performSave, 1500);
+}
+
+function renderLiveBlock(block) {
+  const raw  = block.raw || '';
+  const html = typeof DOMPurify !== 'undefined'
+    ? DOMPurify.sanitize(marked.parse(raw, { breaks: true, gfm: true }))
+    : marked.parse(raw, { breaks: true, gfm: true });
+
+  block.wrapEl.innerHTML = '';
+  block.wrapEl.classList.remove('editing');
+  block.wrapEl.classList.add('rendered');
+
+  const inner = document.createElement('div');
+  inner.className = 'live-rendered prose';
+  inner.innerHTML = html;
+  inner.querySelectorAll('a[href]').forEach(a => {
+    const proto = a.protocol.toLowerCase();
+    if (proto === 'javascript:' || proto === 'data:' || proto === 'vbscript:') {
+      a.removeAttribute('href'); return;
+    }
+    a.target = '_blank'; a.rel = 'noopener noreferrer';
+  });
+  block.wrapEl.appendChild(inner);
+}
+
+function deactivateCurrentLiveBlock() {
+  if (activeLiveIdx < 0 || activeLiveIdx >= liveBlocks.length) return;
+  const block = liveBlocks[activeLiveIdx];
+  const ta    = block.wrapEl.querySelector('.live-ta');
+  if (ta) { block.raw = ta.value; liveSyncToEditor(); }
+  renderLiveBlock(block);
+  activeLiveIdx = -1;
+}
+
+function activateLiveBlock(idx) {
+  if (idx === activeLiveIdx) return;
+  deactivateCurrentLiveBlock();
+  activeLiveIdx = idx;
+
+  const block = liveBlocks[idx];
+  block.wrapEl.innerHTML = '';
+  block.wrapEl.classList.remove('rendered');
+  block.wrapEl.classList.add('editing');
+
+  const ta = document.createElement('textarea');
+  ta.className  = 'live-ta';
+  ta.value      = block.raw;
+  ta.spellcheck = true;
+  block.wrapEl.appendChild(ta);
+
+  function resize() { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; }
+
+  ta.addEventListener('input', () => {
+    block.raw = ta.value;
+    resize();
+    liveSyncToEditor();
+  });
+
+  /* Blur: re-render after a short delay so clicks on other blocks register first */
+  ta.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (activeLiveIdx === idx) deactivateCurrentLiveBlock();
+    }, 180);
+  });
+
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = ta.selectionStart;
+      ta.value = ta.value.slice(0, s) + '    ' + ta.value.slice(ta.selectionEnd);
+      ta.selectionStart = ta.selectionEnd = s + 4;
+      block.raw = ta.value; liveSyncToEditor();
+    }
+    /* Escape: blur and render */
+    if (e.key === 'Escape') { ta.blur(); }
+  });
+
+  requestAnimationFrame(() => { resize(); ta.focus(); });
+}
+
+function addLiveBlock(raw, insertIdx) {
+  const wrapEl = document.createElement('div');
+  wrapEl.className = 'live-block';
+  const block = { raw, wrapEl };
+
+  if (insertIdx !== undefined && insertIdx <= liveBlocks.length) {
+    liveBlocks.splice(insertIdx, 0, block);
+    const ref = $livePane.children[insertIdx];
+    $livePane.insertBefore(wrapEl, ref || null);
+  } else {
+    liveBlocks.push(block);
+    $livePane.appendChild(wrapEl);
+  }
+
+  wrapEl.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    const i = liveBlocks.indexOf(block);
+    if (i >= 0) activateLiveBlock(i);
+  });
+
+  renderLiveBlock(block);
+  return block;
+}
+
+function initLiveMode() {
+  $livePane.innerHTML = '';
+  liveBlocks    = [];
+  activeLiveIdx = -1;
+
+  const blocks = splitMarkdownBlocks($editor.value);
+  if (blocks.length === 0) { addLiveBlock(''); }
+  else { blocks.forEach(raw => addLiveBlock(raw)); }
+}
+
+/* Click in empty area below all blocks → activate last (or new) block */
+$livePane.addEventListener('mousedown', e => {
+  if (e.target === $livePane) {
+    if (liveBlocks.length === 0) { addLiveBlock(''); activateLiveBlock(0); }
+    else { activateLiveBlock(liveBlocks.length - 1); }
+  }
+});
 
 /* ── Divider drag-to-resize ─────────────────────────────────── */
 (function initDivider() {
@@ -1340,6 +1529,7 @@ document.addEventListener('keydown', e => {
   if (mod && e.key === '1') { e.preventDefault(); if (activeId) setMode('edit'); }
   if (mod && e.key === '2') { e.preventDefault(); if (activeId) setMode('split'); }
   if (mod && e.key === '3') { e.preventDefault(); if (activeId) setMode('preview'); }
+  if (mod && e.key === '4') { e.preventDefault(); if (activeId) setMode('live'); }
   if (mod && e.key === 'r') { e.preventDefault(); if (activeId) openRenameModal(); }
   if (mod && e.key === ',') { e.preventDefault(); showSettings(); }
   if (mod && e.shiftKey && e.key === 'B') { e.preventDefault(); toggleSidebar(); }
@@ -1367,6 +1557,12 @@ $btnToggle.addEventListener('click', toggleSidebar);
 $btnModeEdit.addEventListener('click',    () => { if (activeId) setMode('edit'); });
 $btnModeSplit.addEventListener('click',   () => { if (activeId) setMode('split'); });
 $btnModePreview.addEventListener('click', () => { if (activeId) setMode('preview'); });
+$btnModeLive.addEventListener('click',    () => { if (activeId) setMode('live'); });
+
+/* Split scroll sync */
+$editor.addEventListener('scroll', syncSplitScroll);
+$editor.addEventListener('keyup',  syncSplitCursor);
+$editor.addEventListener('click',  syncSplitCursor);
 $btnRename.addEventListener('click', openRenameModal);
 $btnMove.addEventListener('click', openMoveModal);
 $btnDelete.addEventListener('click', deleteNote);
@@ -1486,6 +1682,7 @@ async function init() {
       const lastOpen = localStorage.getItem('gh_last_open');
       const toOpen   = notes.find(n => n.path === lastOpen) || notes[0];
       await openNote(toOpen.path);
+      setMode(mode);  // Apply saved/default mode after first note loads
     }
   } catch (err) {
     setStatus(`Connection failed: ${err.message}`, true, true);
@@ -1493,5 +1690,5 @@ async function init() {
   }
 }
 
-$btnModeEdit.classList.add('active');
+$btnModeSplit.classList.add('active');
 init();
