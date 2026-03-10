@@ -13,6 +13,7 @@
       <div id="sidebar-header">
         <span id="app-title">Notes</span>
         <a id="btn-tasks-link" href="../index.html" title="Open Task Tracker">&#x1F4CB; Tasks</a>
+        <button id="btn-new-folder" title="New folder">&#x1F4C2;</button>
         <button id="btn-new" title="New note">+</button>
       </div>
       <div id="search-wrap">
@@ -35,6 +36,7 @@
             <button id="btn-mode-preview" class="mode-btn" title="Preview mode (Ctrl+3)">Preview</button>
           </div>
           <button id="btn-rename"   title="Rename note (Ctrl+R)">Rename</button>
+          <button id="btn-move"     title="Move note to folder">Move</button>
           <button id="btn-delete"   title="Delete note">Delete</button>
           <button id="btn-settings" title="GitHub settings (Ctrl+,)">&#9881;</button>
         </div>
@@ -104,10 +106,22 @@
     </div>
   </div>
 
-  <!-- Rename modal (used in Preview mode where title input is hidden) -->
+  <!-- Move note modal -->
+  <div id="move-overlay" class="hidden">
+    <div id="move-modal">
+      <p>Move "<strong id="move-note-name"></strong>" to:</p>
+      <select id="move-select"></select>
+      <div id="move-actions">
+        <button id="move-cancel">Cancel</button>
+        <button id="move-confirm">Move</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename / New folder modal -->
   <div id="modal-overlay" class="hidden">
     <div id="modal">
-      <label for="modal-input">Rename note</label>
+      <label id="modal-label" for="modal-input">Rename note</label>
       <input id="modal-input" type="text" />
       <div id="modal-actions">
         <button id="modal-cancel">Cancel</button>
