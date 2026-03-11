@@ -1184,6 +1184,7 @@ function setMode(newMode) {
   $preview.classList.add('hidden');
   $divider.classList.add('hidden');
   $livePane.classList.add('hidden');
+  $editor.setAttribute('wrap', 'soft');
 
   if (mode === 'edit') {
     $btnModeEdit.classList.add('active');
@@ -1191,6 +1192,7 @@ function setMode(newMode) {
   } else if (mode === 'split') {
     $btnModeSplit.classList.add('active');
     $editorWrap.classList.add('split');
+    $editor.setAttribute('wrap', 'off');
     $divider.classList.remove('hidden');
     $preview.classList.remove('hidden');
     updatePreview();
