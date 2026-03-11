@@ -289,6 +289,32 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 #note-title-input::placeholder { color: var(--text-muted); }
 #note-title-input:focus { border-bottom-color: var(--accent); }
 
+#editor-container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+#line-numbers {
+  display: none;
+  width: 3.5rem;
+  padding: 18px 10px 24px 0;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#line-numbers div { line-height: 1.7; }
+
+#editor-wrap.split #line-numbers { display: block; }
+
 #editor {
   flex: 1;
   background: var(--bg);
