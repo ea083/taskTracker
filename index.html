@@ -2184,6 +2184,11 @@ function showApp(user) {
         saved.forEach(id => state.listHiddenCategories.add(id));
         updateBoardFilterBtnState('list-cat-filter-btn', state.listHiddenCategories.size > 0);
     } catch(e) {}
+    // Restore collapsed category groups in list view
+    try {
+        const saved = JSON.parse(localStorage.getItem('tt_collapsed_groups') || '[]');
+        saved.forEach(id => state.collapsedGroups.add(id));
+    } catch(e) {}
 }
 
 function showLogin() {
@@ -4620,6 +4625,7 @@ function toggleGroupCollapse(groupId) {
     } else {
         state.collapsedGroups.add(groupId);
     }
+    localStorage.setItem('tt_collapsed_groups', JSON.stringify([...state.collapsedGroups]));
     renderTasks();
 }
 
