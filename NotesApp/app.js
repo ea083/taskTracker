@@ -1184,8 +1184,9 @@ function setMode(newMode) {
   $preview.classList.add('hidden');
   $divider.classList.add('hidden');
   $livePane.classList.add('hidden');
-  $editor.style.paddingBottom  = '';
-  $preview.style.paddingBottom = '';
+  $editor.style.paddingBottom      = '';
+  $lineNumbers.style.paddingBottom = '';
+  $preview.style.paddingBottom     = '';
 
   if (mode === 'edit') {
     $btnModeEdit.classList.add('active');
@@ -1235,8 +1236,10 @@ function syncSplitScroll() {
 /* ── Split view scroll-past-end ─────────────────────────────── */
 function updateScrollPadding() {
   if (mode !== 'split') return;
-  $editor.style.paddingBottom  = Math.round($editor.clientHeight  / 2) + 'px';
-  $preview.style.paddingBottom = Math.round($preview.clientHeight / 2) + 'px';
+  const edPad = Math.round($editor.clientHeight / 2) + 'px';
+  $editor.style.paddingBottom      = edPad;
+  $lineNumbers.style.paddingBottom = edPad;
+  $preview.style.paddingBottom     = Math.round($preview.clientHeight / 2) + 'px';
 }
 
 /* ── Split view line numbers ────────────────────────────────── */
