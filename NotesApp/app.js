@@ -1184,6 +1184,8 @@ function setMode(newMode) {
   $preview.classList.add('hidden');
   $divider.classList.add('hidden');
   $livePane.classList.add('hidden');
+  $editor.style.paddingBottom  = '';
+  $preview.style.paddingBottom = '';
 
   if (mode === 'edit') {
     $btnModeEdit.classList.add('active');
@@ -1195,7 +1197,7 @@ function setMode(newMode) {
     $preview.classList.remove('hidden');
     updatePreview();
     updateLineNumbers();
-    requestAnimationFrame(syncSplitScroll);
+    requestAnimationFrame(() => { syncSplitScroll(); updateScrollPadding(); });
     $editor.focus();
   } else if (mode === 'preview') {
     $btnModePreview.classList.add('active');
@@ -1228,6 +1230,13 @@ function syncSplitScroll() {
     const prevMax = $preview.scrollHeight - $preview.clientHeight;
     $preview.scrollTo({ top: ratio * prevMax, behavior: 'smooth' });
   });
+}
+
+/* ── Split view scroll-past-end ─────────────────────────────── */
+function updateScrollPadding() {
+  if (mode !== 'split') return;
+  $editor.style.paddingBottom  = Math.round($editor.clientHeight  / 2) + 'px';
+  $preview.style.paddingBottom = Math.round($preview.clientHeight / 2) + 'px';
 }
 
 /* ── Split view line numbers ────────────────────────────────── */
@@ -1536,11 +1545,13 @@ $livePane.addEventListener('mousedown', e => {
     document.body.style.cursor     = '';
     document.body.style.userSelect = '';
     updateLineNumbers();
+    updateScrollPadding();
   });
 })();
 
-/* Recompute line numbers when the editor is resized (e.g. window resize) */
-new ResizeObserver(() => { if (mode === 'split') updateLineNumbers(); }).observe($editor);
+/* Recompute line numbers and scroll padding when pane sizes change */
+new ResizeObserver(() => { if (mode === 'split') { updateLineNumbers(); updateScrollPadding(); } }).observe($editor);
+new ResizeObserver(() => { if (mode === 'split') updateScrollPadding(); }).observe($preview);
 
 /* ── Smart Enter: list continuation + indentation ──────────── */
 function handleEditorEnter(e) {
