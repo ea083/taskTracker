@@ -1242,10 +1242,6 @@ function syncSplitCursor() {
   const totalLines = text.split('\n').length;
 
   // Scroll preview proportionally to cursor line
-  const ratio   = (cursorLine + 1) / Math.max(totalLines, 1);
-  const prevMax = $preview.scrollHeight - $preview.clientHeight;
-  if (prevMax > 0) $preview.scrollTop = ratio * prevMax;
-
   // Find which block contains the cursor and highlight it in the preview
   const blocks = splitMarkdownBlocksWithLines(text);
   let blockIdx = -1;
@@ -1263,6 +1259,16 @@ function syncSplitCursor() {
   }
   if (blockIdx === -1 && blocks.length > 0) blockIdx = 0;
   highlightPreviewBlock(blockIdx);
+
+  // Scroll the preview so the active block is vertically centered
+  const blockEl = $preview.querySelector(`[data-block="${blockIdx}"]`);
+  if (blockEl) {
+    const blockRect    = blockEl.getBoundingClientRect();
+    const previewRect  = $preview.getBoundingClientRect();
+    const blockCenter  = blockRect.top + blockRect.height / 2;
+    const previewCenter = previewRect.top + $preview.clientHeight / 2;
+    $preview.scrollTop += blockCenter - previewCenter;
+  }
 }
 
 /* ── Live (WYSIWYG) mode ────────────────────────────────────── */
@@ -1664,6 +1670,34 @@ function hideNoteTooltip() {
 /* ── Sidebar toggle ─────────────────────────────────────────── */
 function toggleSidebar() { $sidebar.classList.toggle('collapsed'); }
 
+/* ── Inline markdown formatting (bold / italic) ─────────────── */
+function applyInlineMarkdown(marker) {
+  const s   = $editor.selectionStart;
+  const e   = $editor.selectionEnd;
+  const val = $editor.value;
+  const len = marker.length;
+  const sel = val.slice(s, e);
+
+  // If the selection is already wrapped by this marker, unwrap it
+  const before = val.slice(s - len, s);
+  const after  = val.slice(e, e + len);
+  if (before === marker && after === marker) {
+    $editor.value = val.slice(0, s - len) + sel + val.slice(e + len);
+    $editor.selectionStart = s - len;
+    $editor.selectionEnd   = e - len;
+  } else if (sel.length > 0) {
+    // Wrap the selected text
+    $editor.value = val.slice(0, s) + marker + sel + marker + val.slice(e);
+    $editor.selectionStart = s + len;
+    $editor.selectionEnd   = e + len;
+  } else {
+    // No selection: insert paired markers and place cursor between them
+    $editor.value = val.slice(0, s) + marker + marker + val.slice(s);
+    $editor.selectionStart = $editor.selectionEnd = s + len;
+  }
+  onEditorInput();
+}
+
 /* ── Keyboard shortcuts ─────────────────────────────────────── */
 document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey;
@@ -1689,6 +1723,8 @@ document.addEventListener('keydown', e => {
       onEditorInput();
     }
     if (e.key === 'Enter') handleEditorEnter(e);
+    if (mod && e.key === 'b') { e.preventDefault(); applyInlineMarkdown('**'); }
+    if (mod && e.key === 'i') { e.preventDefault(); applyInlineMarkdown('*'); }
   }
 });
 
