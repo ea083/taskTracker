@@ -49,7 +49,6 @@ const $editor         = document.getElementById('editor');
 const $editorPane     = document.getElementById('editor-pane');
 const $noteTitleInput = document.getElementById('note-title-input');
 const $preview          = document.getElementById('preview');
-const $previewCursorBar = document.getElementById('preview-cursor-bar');
 const $editorWrap       = document.getElementById('editor-wrap');
 const $emptyState     = document.getElementById('empty-state');
 const $titleDisplay   = document.getElementById('note-title-display');
@@ -443,7 +442,6 @@ function onEditorInput() {
   saveTimer = setTimeout(performSave, 1500);
   if (mode === 'split' || mode === 'preview') {
     updatePreview();
-    requestAnimationFrame(syncSplitCursor);
   }
 }
 
@@ -927,17 +925,8 @@ function updatePreview() {
   const title = $noteTitleInput.value.trim();
   if (typeof marked !== 'undefined') {
     const titleHtml = title ? `<h1 class="preview-note-title">${esc(title)}</h1>` : '';
-    // Wrap each markdown block in a data-block div for cursor position tracking
-    const mdBlocks = splitMarkdownBlocksWithLines(raw);
-    let blockHtml = '';
-    if (mdBlocks.length > 0) {
-      mdBlocks.forEach((block, i) => {
-        blockHtml += `<div data-block="${i}">${marked.parse(block.text, { breaks: true, gfm: true })}</div>`;
-      });
-    } else {
-      blockHtml = marked.parse(raw, { breaks: true, gfm: true });
-    }
-    const rawHtml   = titleHtml + blockHtml;
+    const bodyHtml  = marked.parse(raw, { breaks: true, gfm: true });
+    const rawHtml   = titleHtml + bodyHtml;
     const sanitized = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
     $preview.innerHTML = `<div class="prose">${sanitized}</div>`;
     $preview.querySelectorAll('a[href]').forEach(a => {
@@ -1172,7 +1161,6 @@ function initDragAndDrop() {
 /* ── Mode switching ─────────────────────────────────────────── */
 function setMode(newMode) {
   if (mode === 'live') deactivateCurrentLiveBlock();
-  $previewCursorBar.style.display = 'none';
   mode = newMode;
 
   [$btnModeEdit, $btnModeSplit, $btnModePreview, $btnModeLive]
@@ -1215,65 +1203,18 @@ function cycleMode() {
 }
 
 /* ── Split view scroll sync ─────────────────────────────────── */
+let _splitScrollRAF = null;
 function syncSplitScroll() {
   if (mode !== 'split') return;
-  const edMax = $editor.scrollHeight - $editor.clientHeight;
-  if (edMax <= 0) return;
-  const ratio   = $editor.scrollTop / edMax;
-  const prevMax = $preview.scrollHeight - $preview.clientHeight;
-  $preview.scrollTop = ratio * prevMax;
-}
-
-function syncSplitCursor() {
-  if (mode !== 'split') return;
-  const text = $editor.value;
-  if (!text.length) { $previewCursorBar.style.display = 'none'; return; }
-
-  const cursorLine = text.slice(0, $editor.selectionStart).split('\n').length - 1;
-
-  // Find which block contains the cursor
-  const blocks = splitMarkdownBlocksWithLines(text);
-  let blockIdx = -1;
-  for (let i = 0; i < blocks.length; i++) {
-    if (cursorLine >= blocks[i].startLine && cursorLine <= blocks[i].endLine) {
-      blockIdx = i; break;
-    }
-  }
-  // Cursor in a blank line between blocks — use the block just before it
-  if (blockIdx === -1) {
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      if (blocks[i].endLine < cursorLine) { blockIdx = i; break; }
-    }
-  }
-  if (blockIdx === -1 && blocks.length > 0) blockIdx = 0;
-
-  const blockEl = $preview.querySelector(`[data-block="${blockIdx}"]`);
-  if (!blockEl) return;
-
-  // Cursor Y in the editor's viewport (top of the cursor line, relative to editor top)
-  const edStyle    = getComputedStyle($editor);
-  const lineHeight = parseFloat(edStyle.lineHeight);
-  const paddingTop = parseFloat(edStyle.paddingTop);
-  const cursorEditorY = paddingTop + cursorLine * lineHeight - $editor.scrollTop;
-
-  // Proportional position within the rendered block
-  const block      = blocks[blockIdx];
-  const blockLines = Math.max(block.endLine - block.startLine + 1, 1);
-  const fraction   = (cursorLine - block.startLine) / blockLines;
-
-  const blockRect   = blockEl.getBoundingClientRect();
-  const previewRect = $preview.getBoundingClientRect();
-  const blockTopInPreview = blockRect.top - previewRect.top;
-  const correspondingPreviewY = blockTopInPreview + fraction * blockRect.height;
-
-  // Scroll preview so the corresponding line aligns with the cursor's visual Y
-  $preview.scrollTop += correspondingPreviewY - cursorEditorY;
-
-  // Position the cursor bar at the cursor's Y in the preview viewport
-  $previewCursorBar.style.display = 'block';
-  $previewCursorBar.style.top     = (previewRect.top + cursorEditorY) + 'px';
-  $previewCursorBar.style.left    = (previewRect.left + 32) + 'px';
-  $previewCursorBar.style.height  = lineHeight + 'px';
+  if (_splitScrollRAF) cancelAnimationFrame(_splitScrollRAF);
+  _splitScrollRAF = requestAnimationFrame(() => {
+    _splitScrollRAF = null;
+    const edMax = $editor.scrollHeight - $editor.clientHeight;
+    if (edMax <= 0) return;
+    const ratio   = $editor.scrollTop / edMax;
+    const prevMax = $preview.scrollHeight - $preview.clientHeight;
+    $preview.scrollTo({ top: ratio * prevMax, behavior: 'smooth' });
+  });
 }
 
 /* ── Live (WYSIWYG) mode ────────────────────────────────────── */
@@ -1303,41 +1244,6 @@ function splitMarkdownBlocks(text) {
   return blocks.filter(b => b.trim() !== '');
 }
 
-/* Like splitMarkdownBlocks but also records the source line range of each block */
-function splitMarkdownBlocksWithLines(text) {
-  const lines  = (text || '').split('\n');
-  const blocks = [];
-  let   curr   = [];
-  let   currStart = 0;
-  let   fence  = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^(`{3,}|~{3,})/.test(line)) {
-      if (!curr.length) currStart = i;
-      curr.push(line);
-      fence = !fence;
-      if (!fence) {
-        blocks.push({ text: curr.join('\n'), startLine: currStart, endLine: i });
-        curr = [];
-        currStart = i + 1;
-      }
-    } else if (!fence && line.trim() === '') {
-      if (curr.length) {
-        blocks.push({ text: curr.join('\n'), startLine: currStart, endLine: i - 1 });
-        curr = [];
-      }
-      currStart = i + 1;
-    } else {
-      if (!curr.length) currStart = i;
-      curr.push(line);
-    }
-  }
-  if (curr.length) {
-    blocks.push({ text: curr.join('\n'), startLine: currStart, endLine: lines.length - 1 });
-  }
-  return blocks.filter(b => b.text.trim() !== '');
-}
 
 function liveSyncToEditor() {
   $editor.value = liveBlocks.map(b => b.raw).join('\n\n');
@@ -1745,8 +1651,6 @@ $btnModeLive.addEventListener('click',    () => { if (activeId) setMode('live');
 
 /* Split scroll sync */
 $editor.addEventListener('scroll', syncSplitScroll);
-$editor.addEventListener('keyup',  syncSplitCursor);
-$editor.addEventListener('click',  syncSplitCursor);
 $btnRename.addEventListener('click', openRenameModal);
 $btnMove.addEventListener('click', openMoveModal);
 $btnDelete.addEventListener('click', deleteNote);
