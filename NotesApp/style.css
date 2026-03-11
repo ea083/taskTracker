@@ -311,7 +311,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   flex-shrink: 0;
 }
 
-#line-numbers div { line-height: 1.7; }
+#line-numbers div { overflow: hidden; }
 
 #editor-wrap.split #line-numbers { display: block; }
 
@@ -459,11 +459,6 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   min-width: 0;
 }
 
-/* No soft-wrap in split mode (line numbers require 1 visual line = 1 source line) */
-#editor-wrap.split #editor {
-  overflow-x: auto;
-  white-space: pre;
-}
 
 /* The draggable divider */
 #divider {
