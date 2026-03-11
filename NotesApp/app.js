@@ -48,8 +48,9 @@ const $btnSettings    = document.getElementById('btn-settings');
 const $editor         = document.getElementById('editor');
 const $editorPane     = document.getElementById('editor-pane');
 const $noteTitleInput = document.getElementById('note-title-input');
-const $preview        = document.getElementById('preview');
-const $editorWrap     = document.getElementById('editor-wrap');
+const $preview          = document.getElementById('preview');
+const $previewCursorBar = document.getElementById('preview-cursor-bar');
+const $editorWrap       = document.getElementById('editor-wrap');
 const $emptyState     = document.getElementById('empty-state');
 const $titleDisplay   = document.getElementById('note-title-display');
 const $statusText     = document.getElementById('status-text');
@@ -1171,6 +1172,7 @@ function initDragAndDrop() {
 /* ── Mode switching ─────────────────────────────────────────── */
 function setMode(newMode) {
   if (mode === 'live') deactivateCurrentLiveBlock();
+  $previewCursorBar.style.display = 'none';
   mode = newMode;
 
   [$btnModeEdit, $btnModeSplit, $btnModePreview, $btnModeLive]
@@ -1222,21 +1224,10 @@ function syncSplitScroll() {
   $preview.scrollTop = ratio * prevMax;
 }
 
-function clearPreviewCursorHighlight() {
-  $preview.querySelectorAll('[data-block].cursor-block')
-    .forEach(el => el.classList.remove('cursor-block'));
-}
-
-function highlightPreviewBlock(idx) {
-  clearPreviewCursorHighlight();
-  const el = $preview.querySelector(`[data-block="${idx}"]`);
-  if (el) el.classList.add('cursor-block');
-}
-
 function syncSplitCursor() {
   if (mode !== 'split') return;
   const text = $editor.value;
-  if (!text.length) { clearPreviewCursorHighlight(); return; }
+  if (!text.length) { $previewCursorBar.style.display = 'none'; return; }
 
   const cursorLine = text.slice(0, $editor.selectionStart).split('\n').length - 1;
 
@@ -1245,29 +1236,27 @@ function syncSplitCursor() {
   let blockIdx = -1;
   for (let i = 0; i < blocks.length; i++) {
     if (cursorLine >= blocks[i].startLine && cursorLine <= blocks[i].endLine) {
-      blockIdx = i;
-      break;
+      blockIdx = i; break;
     }
   }
-  // Cursor is in a blank line between blocks — use the block just before it
+  // Cursor in a blank line between blocks — use the block just before it
   if (blockIdx === -1) {
     for (let i = blocks.length - 1; i >= 0; i--) {
       if (blocks[i].endLine < cursorLine) { blockIdx = i; break; }
     }
   }
   if (blockIdx === -1 && blocks.length > 0) blockIdx = 0;
-  highlightPreviewBlock(blockIdx);
 
   const blockEl = $preview.querySelector(`[data-block="${blockIdx}"]`);
   if (!blockEl) return;
 
-  // Cursor's Y position relative to the editor pane's top (accounting for scroll)
+  // Cursor Y in the editor's viewport (top of the cursor line, relative to editor top)
   const edStyle    = getComputedStyle($editor);
   const lineHeight = parseFloat(edStyle.lineHeight);
   const paddingTop = parseFloat(edStyle.paddingTop);
   const cursorEditorY = paddingTop + cursorLine * lineHeight - $editor.scrollTop;
 
-  // Corresponding Y within the preview block based on how far into the block the cursor is
+  // Proportional position within the rendered block
   const block      = blocks[blockIdx];
   const blockLines = Math.max(block.endLine - block.startLine + 1, 1);
   const fraction   = (cursorLine - block.startLine) / blockLines;
@@ -1277,8 +1266,14 @@ function syncSplitCursor() {
   const blockTopInPreview = blockRect.top - previewRect.top;
   const correspondingPreviewY = blockTopInPreview + fraction * blockRect.height;
 
-  // Scroll preview so the line under the cursor aligns with the cursor's visual Y
+  // Scroll preview so the corresponding line aligns with the cursor's visual Y
   $preview.scrollTop += correspondingPreviewY - cursorEditorY;
+
+  // Position the cursor bar at the cursor's Y in the preview viewport
+  $previewCursorBar.style.display = 'block';
+  $previewCursorBar.style.top     = (previewRect.top + cursorEditorY) + 'px';
+  $previewCursorBar.style.left    = (previewRect.left + 32) + 'px';
+  $previewCursorBar.style.height  = lineHeight + 'px';
 }
 
 /* ── Live (WYSIWYG) mode ────────────────────────────────────── */
@@ -1713,11 +1708,11 @@ document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key === 'n') { e.preventDefault(); createNote(); }
   if (mod && e.key === 'p') { e.preventDefault(); if (activeId) cycleMode(); }
-  if (mod && e.key === '1') { e.preventDefault(); if (activeId) setMode('edit'); }
-  if (mod && e.key === '2') { e.preventDefault(); if (activeId) setMode('split'); }
-  if (mod && e.key === '3') { e.preventDefault(); if (activeId) setMode('preview'); }
-  if (mod && e.key === '4') { e.preventDefault(); if (activeId) setMode('live'); }
-  if (mod && e.key === 'r') { e.preventDefault(); if (activeId) openRenameModal(); }
+  if (mod && e.shiftKey && e.key === '1') { e.preventDefault(); if (activeId) setMode('edit'); }
+  if (mod && e.shiftKey && e.key === '2') { e.preventDefault(); if (activeId) setMode('split'); }
+  if (mod && e.shiftKey && e.key === '3') { e.preventDefault(); if (activeId) setMode('preview'); }
+  if (mod && e.shiftKey && e.key === '4') { e.preventDefault(); if (activeId) setMode('live'); }
+  if (e.key === 'F2') { e.preventDefault(); if (activeId) openRenameModal(); }
   if (mod && e.key === ',') { e.preventDefault(); showSettings(); }
   if (mod && e.shiftKey && e.key === 'B') { e.preventDefault(); toggleSidebar(); }
   if (e.key === 'Escape') { hideSettings(); closeModal(); closeMoveModal(); hideCtxMenu(); }
