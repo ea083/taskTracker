@@ -223,9 +223,94 @@
 
         /* ── Main ── */
         main {
-            max-width: 900px;
+            max-width: 1220px;
             margin: 24px auto;
             padding: 0 20px;
+        }
+
+        /* ── List view flex layout (main area + persist panel) ── */
+        #list-view {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+        #list-main-area {
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* ── Persist Panel ── */
+        #persist-panel {
+            width: 260px;
+            flex-shrink: 0;
+            position: sticky;
+            top: 72px;
+            max-height: calc(100vh - 90px);
+            overflow-y: auto;
+            background: var(--card);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            padding: 14px;
+        }
+        .persist-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text);
+        }
+        .persist-panel-header .btn-add-persist {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .persist-panel-header .btn-add-persist:hover { background: var(--bg); color: var(--text); }
+        .persist-card {
+            background: var(--bg);
+            border-radius: var(--radius);
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border: 1px solid var(--border);
+            transition: border-color 0.15s;
+        }
+        .persist-card:last-child { margin-bottom: 0; }
+        .persist-card.running { border-color: var(--primary); }
+        .persist-card-name {
+            font-weight: 500;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+            color: var(--text);
+        }
+        .persist-card-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .persist-card-actions .time-display {
+            flex: 1;
+            font-size: 12px;
+        }
+        .persist-empty {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 12px 0;
         }
 
         /* ── Toolbar ── */
@@ -344,6 +429,7 @@
         .badge-todo        { background: #f3f4f6; color: #4b5563; }
         .badge-in-progress { background: #dbeafe; color: #1d4ed8; }
         .badge-completed   { background: #d1fae5; color: #059669; }
+        .badge-persist     { background: #ede9fe; color: #6d28d9; }
 
         .task-date { font-size: 11px; color: var(--text-muted); }
 
@@ -1460,6 +1546,7 @@
         body.dark .manual-form          { background: #111827; }
         body.dark .time-entry           { background: #111827; border-color: var(--border); }
         body.dark .badge-todo           { background: #374151; color: #d1d5db; }
+        body.dark .badge-persist        { background: #2e1065; color: #c4b5fd; }
         body.dark .badge-high           { background: #450a0a; color: #fca5a5; }
         body.dark .badge-medium         { background: #451a03; color: #fcd34d; }
         body.dark .badge-low            { background: #052e16; color: #6ee7b7; }
@@ -1668,6 +1755,7 @@
 
         <!-- List View -->
         <div id="list-view">
+        <div id="list-main-area">
             <div class="toolbar">
                 <button class="btn btn-primary" onclick="openAddTask()">+ New Task</button>
                 <input type="text" class="search-box" id="search-input" placeholder="Search tasks..." oninput="handleSearch(this.value)">
@@ -1726,7 +1814,18 @@
                 <div class="chart-resize-handle" id="chart-resize-handle" onmousedown="chartResizeStart(event)" title="Drag to resize"></div>
             </div>
             <div class="task-list" id="task-list"></div>
+        </div><!-- end #list-main-area -->
+
+        <!-- Persist Panel -->
+        <div id="persist-panel">
+            <div class="persist-panel-header">
+                <span>📌 Persistent</span>
+                <button class="btn-add-persist" onclick="openAddPersistTask()" title="Add persistent task">+</button>
+            </div>
+            <div id="persist-list"></div>
         </div>
+
+        </div><!-- end #list-view -->
     </main>
 
     <!-- Board View — lives outside <main> so it is not width-constrained -->
@@ -1836,6 +1935,7 @@
                         <option value="todo">To Do</option>
                         <option value="in-progress">In Progress</option>
                         <option value="completed">Completed</option>
+                        <option value="persist">Persistent</option>
                     </select>
                 </div>
             </div>
@@ -2573,7 +2673,7 @@ function deleteTimeEntry(taskId, entryId) {
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 
 function filtered() {
-    let tasks = [...state.tasks];
+    let tasks = [...state.tasks].filter(t => t.status !== 'persist');
     if (state.listHiddenStatuses.size > 0)    tasks = tasks.filter(t => !state.listHiddenStatuses.has(t.status));
     if (state.listHiddenCategories.size > 0)  tasks = tasks.filter(t => !state.listHiddenCategories.has(t.category || ''));
     if (state.search) {
@@ -2590,7 +2690,7 @@ function filtered() {
 }
 
 // ── Rendering ─────────────────────────────────
-function render() { renderTasks(); updateStats(); updateChart(); if (state.view === 'board') renderBoard(); if (state.view === 'calendar') renderCalendar(); }
+function render() { renderTasks(); renderPersistPanel(); updateStats(); updateChart(); if (state.view === 'board') renderBoard(); if (state.view === 'calendar') renderCalendar(); }
 
 function taskCardHtml(t) {
     const isRunning  = state.activeTimer?.taskId === t.id;
@@ -2769,13 +2869,55 @@ function renderTasks() {
 }
 
 function updateStats() {
-    const tasks = state.tasks;
+    const tasks = state.tasks.filter(t => t.status !== 'persist');
     document.getElementById('stat-total').textContent  = tasks.length;
     document.getElementById('stat-active').textContent = tasks.filter(t => t.status === 'in-progress').length;
     document.getElementById('stat-done').textContent   = tasks.filter(t => t.status === 'completed').length;
     let s = tasks.reduce((a,t) => a + (t.totalSeconds || 0), 0);
     if (state.activeTimer) s += Math.floor((Date.now() - state.activeTimer.startTime) / 1000);
     document.getElementById('stat-hours').textContent = (s / 3600).toFixed(1) + 'h';
+}
+
+// ── Persist Panel ─────────────────────────────
+function persistCardHtml(t) {
+    const isRunning = state.activeTimer?.taskId === t.id;
+    const total     = taskTotal(t);
+    return `
+    <div class="persist-card${isRunning ? ' running' : ''}" id="pcard-${t.id}">
+        <div class="persist-card-name">
+            ${isRunning ? '<span class="dot"></span>' : ''}
+            ${esc(t.name)}
+        </div>
+        <div class="persist-card-actions">
+            <span class="time-display${isRunning ? ' active' : ''}" id="td-${t.id}"
+                  onclick="openTimeLog('${t.id}')" title="View time log" style="cursor:pointer">
+                ${total > 0 ? fmtSecs(total) : '&mdash;'}
+            </span>
+            <button class="timer-btn ${isRunning ? 'stop' : 'start'}"
+                onclick="${isRunning ? 'stopTimer(true)' : `startTimer('${t.id}')`}"
+                title="${isRunning ? 'Stop timer' : 'Clock in'}">
+                ${isRunning ? '&#x23F9;' : '&#x25B6;'}
+            </button>
+            <button class="icon-btn" title="Edit" onclick="openEditTask('${t.id}')">&#x270E;</button>
+            <button class="icon-btn danger" title="Delete" onclick="confirmDelete('${t.id}')">&#x2715;</button>
+        </div>
+    </div>`;
+}
+
+function renderPersistPanel() {
+    const list = document.getElementById('persist-list');
+    if (!list) return;
+    const tasks = state.tasks.filter(t => t.status === 'persist');
+    if (!tasks.length) {
+        list.innerHTML = '<div class="persist-empty">No persistent tasks yet.<br>Click + to add one.</div>';
+        return;
+    }
+    list.innerHTML = tasks.map(t => persistCardHtml(t)).join('');
+}
+
+function openAddPersistTask() {
+    openAddTask();
+    document.getElementById('task-status').value = 'persist';
 }
 
 // ── Modals ────────────────────────────────────
@@ -4222,6 +4364,8 @@ function renderBoard() {
     const unscheduled = [];
 
     state.tasks.forEach(task => {
+        // Persist tasks never appear on the board
+        if (task.status === 'persist') return;
         // Apply status filter
         if (state.boardHiddenStatuses.has(task.status)) return;
         // Apply category filter (use '' as key for uncategorized tasks)
