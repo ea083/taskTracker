@@ -1239,10 +1239,8 @@ function syncSplitCursor() {
   if (!text.length) { clearPreviewCursorHighlight(); return; }
 
   const cursorLine = text.slice(0, $editor.selectionStart).split('\n').length - 1;
-  const totalLines = text.split('\n').length;
 
-  // Scroll preview proportionally to cursor line
-  // Find which block contains the cursor and highlight it in the preview
+  // Find which block contains the cursor
   const blocks = splitMarkdownBlocksWithLines(text);
   let blockIdx = -1;
   for (let i = 0; i < blocks.length; i++) {
@@ -1260,15 +1258,27 @@ function syncSplitCursor() {
   if (blockIdx === -1 && blocks.length > 0) blockIdx = 0;
   highlightPreviewBlock(blockIdx);
 
-  // Scroll the preview so the active block is vertically centered
   const blockEl = $preview.querySelector(`[data-block="${blockIdx}"]`);
-  if (blockEl) {
-    const blockRect    = blockEl.getBoundingClientRect();
-    const previewRect  = $preview.getBoundingClientRect();
-    const blockCenter  = blockRect.top + blockRect.height / 2;
-    const previewCenter = previewRect.top + $preview.clientHeight / 2;
-    $preview.scrollTop += blockCenter - previewCenter;
-  }
+  if (!blockEl) return;
+
+  // Cursor's Y position relative to the editor pane's top (accounting for scroll)
+  const edStyle    = getComputedStyle($editor);
+  const lineHeight = parseFloat(edStyle.lineHeight);
+  const paddingTop = parseFloat(edStyle.paddingTop);
+  const cursorEditorY = paddingTop + cursorLine * lineHeight - $editor.scrollTop;
+
+  // Corresponding Y within the preview block based on how far into the block the cursor is
+  const block      = blocks[blockIdx];
+  const blockLines = Math.max(block.endLine - block.startLine + 1, 1);
+  const fraction   = (cursorLine - block.startLine) / blockLines;
+
+  const blockRect   = blockEl.getBoundingClientRect();
+  const previewRect = $preview.getBoundingClientRect();
+  const blockTopInPreview = blockRect.top - previewRect.top;
+  const correspondingPreviewY = blockTopInPreview + fraction * blockRect.height;
+
+  // Scroll preview so the line under the cursor aligns with the cursor's visual Y
+  $preview.scrollTop += correspondingPreviewY - cursorEditorY;
 }
 
 /* ── Live (WYSIWYG) mode ────────────────────────────────────── */
