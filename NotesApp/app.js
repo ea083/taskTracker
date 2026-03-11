@@ -1197,8 +1197,8 @@ function setMode(newMode) {
     $divider.classList.remove('hidden');
     $preview.classList.remove('hidden');
     updatePreview();
-    updateLineNumbers();
-    requestAnimationFrame(() => { syncSplitScroll(); updateScrollPadding(); });
+    updateLineNumbers();   // chains → _doUpdateLineNumbers → updateScrollPadding
+    requestAnimationFrame(syncSplitScroll);
     $editor.focus();
   } else if (mode === 'preview') {
     $btnModePreview.classList.add('active');
@@ -1236,10 +1236,20 @@ function syncSplitScroll() {
 /* ── Split view scroll-past-end ─────────────────────────────── */
 function updateScrollPadding() {
   if (mode !== 'split') return;
-  const edPad = Math.round($editor.clientHeight / 2) + 'px';
-  $editor.style.paddingBottom      = edPad;
-  $lineNumbers.style.paddingBottom = edPad;
-  $preview.style.paddingBottom     = Math.round($preview.clientHeight / 2) + 'px';
+
+  // Set editor overscroll padding first, then read its actual scrollHeight.
+  $editor.style.paddingBottom = Math.round($editor.clientHeight / 2) + 'px';
+  const edScrollHeight = $editor.scrollHeight;
+
+  // Reset line-numbers padding so we can measure its bare content height,
+  // then set it to whatever value makes its scrollHeight equal the editor's.
+  // This compensates for any pixel-level discrepancy between the mirror div
+  // measurement and the textarea's real internal text height.
+  $lineNumbers.style.paddingBottom = '0';
+  $lineNumbers.style.paddingBottom =
+    Math.max(0, edScrollHeight - $lineNumbers.scrollHeight) + 'px';
+
+  $preview.style.paddingBottom = Math.round($preview.clientHeight / 2) + 'px';
 }
 
 /* ── Split view line numbers ────────────────────────────────── */
@@ -1298,8 +1308,9 @@ function _doUpdateLineNumbers() {
     html += `<div style="height:${kids[i].offsetHeight}px">${i + 1}</div>`;
   }
 
-  $lineNumbers.innerHTML  = html;
-  $lineNumbers.scrollTop  = $editor.scrollTop;
+  $lineNumbers.innerHTML = html;
+  $lineNumbers.scrollTop = $editor.scrollTop;
+  updateScrollPadding();
 }
 
 /* ── Live (WYSIWYG) mode ────────────────────────────────────── */
@@ -1547,13 +1558,13 @@ $livePane.addEventListener('mousedown', e => {
     $divider.classList.remove('dragging');
     document.body.style.cursor     = '';
     document.body.style.userSelect = '';
-    updateLineNumbers();
-    updateScrollPadding();
+    updateLineNumbers();  // chains → _doUpdateLineNumbers → updateScrollPadding
   });
 })();
 
-/* Recompute line numbers and scroll padding when pane sizes change */
-new ResizeObserver(() => { if (mode === 'split') { updateLineNumbers(); updateScrollPadding(); } }).observe($editor);
+/* Recompute line numbers (which chains to updateScrollPadding) on editor
+   resize; update preview padding separately on preview resize. */
+new ResizeObserver(() => { if (mode === 'split') updateLineNumbers(); }).observe($editor);
 new ResizeObserver(() => { if (mode === 'split') updateScrollPadding(); }).observe($preview);
 
 /* ── Smart Enter: list continuation + indentation ──────────── */
