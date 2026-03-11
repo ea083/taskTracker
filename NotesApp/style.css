@@ -376,7 +376,8 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1em 1.2em;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
   margin: 1em 0;
 }
 .prose pre code {
