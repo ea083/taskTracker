@@ -454,6 +454,19 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   background: var(--bg);
 }
 
+/* ── Cursor position indicator in split preview ──────────── */
+[data-block] {
+  border-left: 3px solid transparent;
+  padding-left: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+[data-block].cursor-block {
+  border-left-color: var(--accent);
+  background: rgba(124, 106, 247, 0.06);
+  border-radius: 0 4px 4px 0;
+}
+
 /* ── Live (WYSIWYG) mode pane ─────────────────────────────── */
 #live-pane {
   flex: 1;
