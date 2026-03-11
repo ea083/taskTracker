@@ -1184,7 +1184,6 @@ function setMode(newMode) {
   $preview.classList.add('hidden');
   $divider.classList.add('hidden');
   $livePane.classList.add('hidden');
-  $editor.setAttribute('wrap', 'soft');
 
   if (mode === 'edit') {
     $btnModeEdit.classList.add('active');
@@ -1192,7 +1191,6 @@ function setMode(newMode) {
   } else if (mode === 'split') {
     $btnModeSplit.classList.add('active');
     $editorWrap.classList.add('split');
-    $editor.setAttribute('wrap', 'off');
     $divider.classList.remove('hidden');
     $preview.classList.remove('hidden');
     updatePreview();
@@ -1233,13 +1231,63 @@ function syncSplitScroll() {
 }
 
 /* ── Split view line numbers ────────────────────────────────── */
+/* A hidden mirror div lets us measure the exact rendered height of each
+   source line (including soft-wrapped rows) so numbers stay aligned. */
+let _lnMirror = null;
+let _lnRAF    = null;
+
+function getLnMirror() {
+  if (_lnMirror) return _lnMirror;
+  _lnMirror = document.createElement('div');
+  Object.assign(_lnMirror.style, {
+    position:     'absolute',
+    visibility:   'hidden',
+    pointerEvents:'none',
+    top:          '0',
+    left:         '-9999px',
+    whiteSpace:   'pre-wrap',
+    overflowWrap: 'break-word',
+    wordBreak:    'normal',
+  });
+  document.body.appendChild(_lnMirror);
+  return _lnMirror;
+}
+
 function updateLineNumbers() {
   if (mode !== 'split') return;
-  const lineCount = ($editor.value.match(/\n/g) || []).length + 1;
+  if (_lnRAF) cancelAnimationFrame(_lnRAF);
+  _lnRAF = requestAnimationFrame(_doUpdateLineNumbers);
+}
+
+function _doUpdateLineNumbers() {
+  _lnRAF = null;
+  if (mode !== 'split') return;
+
+  const edStyle      = getComputedStyle($editor);
+  const contentWidth = $editor.clientWidth
+    - parseFloat(edStyle.paddingLeft)
+    - parseFloat(edStyle.paddingRight);
+
+  const mirror = getLnMirror();
+  mirror.style.width      = contentWidth + 'px';
+  mirror.style.fontFamily = edStyle.fontFamily;
+  mirror.style.fontSize   = edStyle.fontSize;
+  mirror.style.lineHeight = edStyle.lineHeight;
+
+  // Render every source line as a child div so we can read all heights
+  // in one pass (single reflow after the innerHTML write).
+  const escLine = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lines   = $editor.value.split('\n');
+  mirror.innerHTML = lines.map(l => `<div>${escLine(l) || '&nbsp;'}</div>`).join('');
+
+  const kids = mirror.children;
   let html = '';
-  for (let i = 1; i <= lineCount; i++) html += `<div>${i}</div>`;
-  $lineNumbers.innerHTML = html;
-  $lineNumbers.scrollTop = $editor.scrollTop;
+  for (let i = 0; i < lines.length; i++) {
+    html += `<div style="height:${kids[i].offsetHeight}px">${i + 1}</div>`;
+  }
+
+  $lineNumbers.innerHTML  = html;
+  $lineNumbers.scrollTop  = $editor.scrollTop;
 }
 
 /* ── Live (WYSIWYG) mode ────────────────────────────────────── */
@@ -1487,8 +1535,12 @@ $livePane.addEventListener('mousedown', e => {
     $divider.classList.remove('dragging');
     document.body.style.cursor     = '';
     document.body.style.userSelect = '';
+    updateLineNumbers();
   });
 })();
+
+/* Recompute line numbers when the editor is resized (e.g. window resize) */
+new ResizeObserver(() => { if (mode === 'split') updateLineNumbers(); }).observe($editor);
 
 /* ── Smart Enter: list continuation + indentation ──────────── */
 function handleEditorEnter(e) {
