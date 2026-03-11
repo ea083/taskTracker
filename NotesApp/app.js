@@ -47,6 +47,7 @@ const $btnDelete      = document.getElementById('btn-delete');
 const $btnSettings    = document.getElementById('btn-settings');
 const $editor         = document.getElementById('editor');
 const $editorPane     = document.getElementById('editor-pane');
+const $lineNumbers    = document.getElementById('line-numbers');
 const $noteTitleInput = document.getElementById('note-title-input');
 const $preview          = document.getElementById('preview');
 const $editorWrap       = document.getElementById('editor-wrap');
@@ -335,6 +336,7 @@ async function openNote(path) {
     note.sha      = sha;
     $editor.value = content;
     if (mode !== 'edit') updatePreview();
+    if (mode === 'split') updateLineNumbers();
     localStorage.setItem('gh_last_open', path);
     setStatus('');
   } catch (err) {
@@ -443,6 +445,7 @@ function onEditorInput() {
   if (mode === 'split' || mode === 'preview') {
     updatePreview();
   }
+  if (mode === 'split') updateLineNumbers();
 }
 
 async function performSave() {
@@ -946,6 +949,8 @@ function updatePreview() {
 
 /* ── Collapsible headings (syntax: ## > Title) ──────────────── */
 function makeCollapsible() {
+  const savedState = JSON.parse(localStorage.getItem(`collapseState_${activeId}`) || '{}');
+  let collapsibleIdx = 0;
   const headings = Array.from($preview.querySelectorAll('h1,h2,h3,h4,h5,h6'));
   headings.forEach(heading => {
     const raw = heading.textContent.trim();
@@ -953,7 +958,6 @@ function makeCollapsible() {
 
     heading.textContent = raw.replace(/^>\s*/, '');
     heading.classList.add('collapsible-heading');
-    heading.dataset.collapsed = 'false';
 
     const arrow = document.createElement('span');
     arrow.className = 'collapse-arrow';
@@ -976,10 +980,18 @@ function makeCollapsible() {
     heading.after(wrapper);
     collected.forEach(el => wrapper.appendChild(el));
 
+    const key         = collapsibleIdx++;
+    const isCollapsed = savedState[key] === true;
+    heading.dataset.collapsed = isCollapsed ? 'true' : 'false';
+    if (isCollapsed) wrapper.classList.add('collapsed');
+
     heading.addEventListener('click', () => {
-      const isCollapsed = heading.dataset.collapsed === 'true';
-      heading.dataset.collapsed = isCollapsed ? 'false' : 'true';
-      wrapper.classList.toggle('collapsed', !isCollapsed);
+      const nowCollapsed = heading.dataset.collapsed !== 'true';
+      heading.dataset.collapsed = nowCollapsed ? 'true' : 'false';
+      wrapper.classList.toggle('collapsed', nowCollapsed);
+      const state = JSON.parse(localStorage.getItem(`collapseState_${activeId}`) || '{}');
+      state[key] = nowCollapsed;
+      localStorage.setItem(`collapseState_${activeId}`, JSON.stringify(state));
     });
   });
 }
@@ -1182,6 +1194,7 @@ function setMode(newMode) {
     $divider.classList.remove('hidden');
     $preview.classList.remove('hidden');
     updatePreview();
+    updateLineNumbers();
     requestAnimationFrame(syncSplitScroll);
     $editor.focus();
   } else if (mode === 'preview') {
@@ -1215,6 +1228,16 @@ function syncSplitScroll() {
     const prevMax = $preview.scrollHeight - $preview.clientHeight;
     $preview.scrollTo({ top: ratio * prevMax, behavior: 'smooth' });
   });
+}
+
+/* ── Split view line numbers ────────────────────────────────── */
+function updateLineNumbers() {
+  if (mode !== 'split') return;
+  const lineCount = ($editor.value.match(/\n/g) || []).length + 1;
+  let html = '';
+  for (let i = 1; i <= lineCount; i++) html += `<div>${i}</div>`;
+  $lineNumbers.innerHTML = html;
+  $lineNumbers.scrollTop = $editor.scrollTop;
 }
 
 /* ── Live (WYSIWYG) mode ────────────────────────────────────── */
@@ -1649,8 +1672,11 @@ $btnModeSplit.addEventListener('click',   () => { if (activeId) setMode('split')
 $btnModePreview.addEventListener('click', () => { if (activeId) setMode('preview'); });
 $btnModeLive.addEventListener('click',    () => { if (activeId) setMode('live'); });
 
-/* Split scroll sync */
+/* Split scroll sync + line number sync */
 $editor.addEventListener('scroll', syncSplitScroll);
+$editor.addEventListener('scroll', () => {
+  if (mode === 'split') $lineNumbers.scrollTop = $editor.scrollTop;
+});
 $btnRename.addEventListener('click', openRenameModal);
 $btnMove.addEventListener('click', openMoveModal);
 $btnDelete.addEventListener('click', deleteNote);

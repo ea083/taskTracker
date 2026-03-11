@@ -48,8 +48,11 @@
         <div id="editor-pane">
           <input id="note-title-input" type="text" placeholder="Untitled note"
                  autocomplete="off" spellcheck="true" />
-          <textarea id="editor" placeholder="Write your note in Markdown…"
-                    spellcheck="true"></textarea>
+          <div id="editor-container">
+            <div id="line-numbers"></div>
+            <textarea id="editor" placeholder="Write your note in Markdown…"
+                      spellcheck="true"></textarea>
+          </div>
         </div>
         <div id="divider" class="hidden"></div>
         <div id="preview" class="hidden"></div>
