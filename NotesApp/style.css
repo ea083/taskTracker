@@ -331,6 +331,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 }
 
 #editor::placeholder { color: var(--text-muted); }
+#editor.no-wrap { white-space: pre; overflow-x: auto; }
 
 #preview {
   flex: 1;
