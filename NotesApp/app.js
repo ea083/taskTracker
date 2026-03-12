@@ -922,17 +922,33 @@ function esc(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/* ── Wiki-style note links ([[Note Title]]) ─────────────────── */
+function processWikiLinks(raw) {
+  return raw.replace(/\[\[([^\]]+)\]\]/g, (match, title) => {
+    const trimmed = title.trim();
+    const target  = notes.find(n => n.title.toLowerCase() === trimmed.toLowerCase());
+    if (target) {
+      return `<a href="#" class="wiki-link" data-note-path="${esc(target.path)}">${esc(trimmed)}</a>`;
+    }
+    return `<span class="wiki-link wiki-link--missing" title="Note not found">${esc(trimmed)}</span>`;
+  });
+}
+
 /* ── Markdown preview ───────────────────────────────────────── */
 function updatePreview() {
   const raw   = $editor.value;
   const title = $noteTitleInput.value.trim();
   if (typeof marked !== 'undefined') {
-    const titleHtml = title ? `<h1 class="preview-note-title">${esc(title)}</h1>` : '';
-    const bodyHtml  = marked.parse(raw, { breaks: true, gfm: true });
-    const rawHtml   = titleHtml + bodyHtml;
-    const sanitized = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
+    const titleHtml  = title ? `<h1 class="preview-note-title">${esc(title)}</h1>` : '';
+    const processed  = processWikiLinks(raw);
+    const bodyHtml   = marked.parse(processed, { breaks: true, gfm: true });
+    const rawHtml    = titleHtml + bodyHtml;
+    const sanitized  = typeof DOMPurify !== 'undefined'
+      ? DOMPurify.sanitize(rawHtml, { ADD_ATTR: ['data-note-path'] })
+      : rawHtml;
     $preview.innerHTML = `<div class="prose">${sanitized}</div>`;
     $preview.querySelectorAll('a[href]').forEach(a => {
+      if (a.classList.contains('wiki-link')) return;
       const proto = a.protocol.toLowerCase();
       if (proto === 'javascript:' || proto === 'data:' || proto === 'vbscript:') {
         a.removeAttribute('href');
@@ -1348,10 +1364,11 @@ function liveSyncToEditor() {
 }
 
 function renderLiveBlock(block) {
-  const raw  = block.raw || '';
+  const raw       = block.raw || '';
+  const processed = processWikiLinks(raw);
   const html = typeof DOMPurify !== 'undefined'
-    ? DOMPurify.sanitize(marked.parse(raw, { breaks: true, gfm: true }))
-    : marked.parse(raw, { breaks: true, gfm: true });
+    ? DOMPurify.sanitize(marked.parse(processed, { breaks: true, gfm: true }), { ADD_ATTR: ['data-note-path'] })
+    : marked.parse(processed, { breaks: true, gfm: true });
 
   block.wrapEl.innerHTML = '';
   block.wrapEl.classList.remove('editing');
@@ -1361,6 +1378,7 @@ function renderLiveBlock(block) {
   inner.className = 'live-rendered prose';
   inner.innerHTML = html;
   inner.querySelectorAll('a[href]').forEach(a => {
+    if (a.classList.contains('wiki-link')) return;
     const proto = a.protocol.toLowerCase();
     if (proto === 'javascript:' || proto === 'data:' || proto === 'vbscript:') {
       a.removeAttribute('href'); return;
@@ -1808,6 +1826,13 @@ $moveOverlay.addEventListener('click', e => {
 /* Dismiss context menu on outside click */
 document.addEventListener('click', e => {
   if (!$ctxMenu.contains(e.target)) hideCtxMenu();
+});
+
+document.addEventListener('click', e => {
+  const link = e.target.closest('a.wiki-link[data-note-path]');
+  if (!link) return;
+  e.preventDefault();
+  openNote(link.dataset.notePath);
 });
 document.addEventListener('contextmenu', e => {
   /* Hide menu if clicking outside a list item */
