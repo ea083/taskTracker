@@ -934,13 +934,17 @@ function processWikiLinks(raw) {
   });
 }
 
+function preprocessMarkdown(raw) {
+  return processWikiLinks(raw.replace(/</g, '&emsp;'));
+}
+
 /* ── Markdown preview ───────────────────────────────────────── */
 function updatePreview() {
   const raw   = $editor.value;
   const title = $noteTitleInput.value.trim();
   if (typeof marked !== 'undefined') {
     const titleHtml  = title ? `<h1 class="preview-note-title">${esc(title)}</h1>` : '';
-    const processed  = processWikiLinks(raw);
+    const processed  = preprocessMarkdown(raw);
     const bodyHtml   = marked.parse(processed, { breaks: true, gfm: true });
     const rawHtml    = titleHtml + bodyHtml;
     const sanitized  = typeof DOMPurify !== 'undefined'
@@ -1365,7 +1369,7 @@ function liveSyncToEditor() {
 
 function renderLiveBlock(block) {
   const raw       = block.raw || '';
-  const processed = processWikiLinks(raw);
+  const processed = preprocessMarkdown(raw);
   const html = typeof DOMPurify !== 'undefined'
     ? DOMPurify.sanitize(marked.parse(processed, { breaks: true, gfm: true }), { ADD_ATTR: ['data-note-path'] })
     : marked.parse(processed, { breaks: true, gfm: true });
