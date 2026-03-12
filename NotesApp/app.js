@@ -8,6 +8,7 @@
 let notes         = [];     // [{ path, title, sha, updatedAt }]
 let activeId      = null;   // current note path (e.g. "folder/My Note.md")
 let mode          = 'split'; // 'edit' | 'split' | 'preview' | 'live'
+let wordWrap      = localStorage.getItem('editor_word_wrap') !== 'off';
 let saveTimer     = null;
 let isSaving      = false;
 let operationLock = false;  // true during rename / delete / move
@@ -39,6 +40,7 @@ const $btnModeEdit    = document.getElementById('btn-mode-edit');
 const $btnModeSplit   = document.getElementById('btn-mode-split');
 const $btnModePreview = document.getElementById('btn-mode-preview');
 const $btnModeLive    = document.getElementById('btn-mode-live');
+const $btnWordWrap    = document.getElementById('btn-word-wrap');
 const $livePane       = document.getElementById('live-pane');
 const $divider        = document.getElementById('divider');
 const $btnRename      = document.getElementById('btn-rename');
@@ -1190,6 +1192,12 @@ function initDragAndDrop() {
   });
 }
 
+/* ── Word-wrap toggle (split mode) ──────────────────────────── */
+function applyWordWrap() {
+  $editor.classList.toggle('no-wrap', !wordWrap);
+  $btnWordWrap.classList.toggle('active', !wordWrap);
+}
+
 /* ── Mode switching ─────────────────────────────────────────── */
 function setMode(newMode) {
   if (mode === 'live') deactivateCurrentLiveBlock();
@@ -1208,6 +1216,8 @@ function setMode(newMode) {
   $lineNumbers.style.paddingBottom = '';
   $preview.style.paddingBottom     = '';
 
+  $btnWordWrap.classList.toggle('hidden', mode !== 'split');
+
   if (mode === 'edit') {
     $btnModeEdit.classList.add('active');
     $editor.focus();
@@ -1216,6 +1226,7 @@ function setMode(newMode) {
     $editorWrap.classList.add('split');
     $divider.classList.remove('hidden');
     $preview.classList.remove('hidden');
+    applyWordWrap();
     updatePreview();
     updateLineNumbers();   // chains → _doUpdateLineNumbers → updateScrollPadding
     requestAnimationFrame(syncSplitScroll);
@@ -1772,6 +1783,12 @@ $btnModeEdit.addEventListener('click',    () => { if (activeId) setMode('edit');
 $btnModeSplit.addEventListener('click',   () => { if (activeId) setMode('split'); });
 $btnModePreview.addEventListener('click', () => { if (activeId) setMode('preview'); });
 $btnModeLive.addEventListener('click',    () => { if (activeId) setMode('live'); });
+$btnWordWrap.addEventListener('click', () => {
+  wordWrap = !wordWrap;
+  localStorage.setItem('editor_word_wrap', wordWrap ? 'on' : 'off');
+  applyWordWrap();
+  updateLineNumbers();
+});
 
 /* Split scroll sync + line number sync */
 $editor.addEventListener('scroll', syncSplitScroll);
